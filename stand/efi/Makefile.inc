@@ -17,6 +17,11 @@ CFLAGS+=	-fPIC
 CFLAGS+=	-fPIC
 .endif
 
+.if ${MACHINE_CPUARCH} == "loongarch"
+CFLAGS+=    -fshort-wchar -fPIC
+EFI_TARGET= efi-app-loongarch64
+.endif
+
 .if ${MACHINE_CPUARCH} == "amd64"
 .if ${DO32:U0} == 1
 EFI_TARGET=	efi-app-ia32
