@@ -48,7 +48,10 @@ SRCS+=		xray/xray_powerpc64.cpp
 SRCS+=		xray/xray_trampoline_powerpc64.cpp
 SRCS+=		xray/xray_trampoline_powerpc64_asm.S
 .endif # powerpc64le
-
+.if ${MACHINE_ARCH} == loongarch64
+SRCS+=		xray/xray_loongarch64.cpp
+SRCS+=		xray/xray_trampoline_loongarch64.S
+.endif # loongarch64
 .PATH:		${CRTSRC}/include/xray
 INCSDIR=	${CLANGDIR}/include/xray
 INCS+=		xray_interface.h
