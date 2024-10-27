@@ -137,6 +137,11 @@ CTFFLAGS+= -g
 CFLAGS += -mno-relax
 .endif
 
+.if ${MACHINE_ARCH:Mloongarch64*} && ${COMPILER_TYPE} == "clang"
+STATIC_CFLAGS+= -ftls-model=initial-exec
+STATIC_CXXFLAGS+= -ftls-model=initial-exec
+.endif
+
 .include <bsd.libnames.mk>
 
 # prefer .s to a .c, add .po, remove stuff not used in the BSD libraries

@@ -97,6 +97,10 @@ CXXFLAGS+= -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-cl
 CFLAGS += -mno-relax
 .endif
 
+.if ${MACHINE_ARCH:Mloongarch64*} && ${COMPILER_TYPE} == "clang"
+CFLAGS+= -ftls-model=initial-exec
+.endif
+
 .if defined(CRUNCH_CFLAGS)
 CFLAGS+=${CRUNCH_CFLAGS}
 .else

@@ -21,6 +21,8 @@ MACHINE_CPU = aim altivec
 MACHINE_CPU = aim altivec vsx vsx2
 . elif ${MACHINE_CPUARCH} == "riscv"
 MACHINE_CPU = riscv
+. elif ${MACHINE_CPUARCH} == "loongarch"
+MACHINE_CPU = loongarch
 . endif
 .else
 
@@ -309,6 +311,9 @@ MACHINE_CPU += vsx3
 ########## riscv
 . elif ${MACHINE_CPUARCH} == "riscv"
 MACHINE_CPU = riscv
+########## loongarch
+. elif ${MACHINE_CPUARCH} == "loongarch"
+MACHINE_CPU = loongarch
 . endif
 .endif
 
@@ -344,6 +349,10 @@ CFLAGS.gcc+= -mabi=spe -mfloat-gprs=double -Wa,-me500
 
 .if ${MACHINE_CPUARCH} == "riscv"
 CFLAGS += -march=rv64imafdc -mabi=lp64d
+.endif
+
+.if ${MACHINE_CPUARCH} == "loongarch"
+CFLAGS += -march=loongarch64 -mabi=lp64d
 .endif
 
 # NB: COPTFLAGS is handled in /usr/src/sys/conf/kern.pre.mk
