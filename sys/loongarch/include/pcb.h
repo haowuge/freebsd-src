@@ -40,14 +40,45 @@
 struct trapframe;
 
 struct pcb {
-	uint64_t	pcb_ra;		/* Return address */
-	uint64_t	pcb_sp;		/* Stack pointer */
-	uint64_t	pcb_gp;		/* Global pointer */
-	uint64_t	pcb_tp;		/* Thread pointer */
-	uint64_t	pcb_s[12];	/* Saved registers */
-	uint64_t	pcb_x[32][2];	/* Floating point registers */
-	uint64_t	pcb_fcsr;	/* Floating point control reg */
-	uint64_t	pcb_fpflags;	/* Floating point flags */
+	union {
+		uint64_t	pcb_regs[32];
+		struct {
+			uint64_t r0;
+			uint64_t ra;
+			uint64_t tp;
+			uint64_t sp;
+			uint64_t a[8];
+			uint64_t t[9];
+			uint64_t r21;
+			uint64_t fp;
+			uint64_t s[9];
+		} u;
+	};
+#define pcb_a u.a
+#define pcb_t u.t
+#define pcb_s u.s
+#define pcb_ra u.ra
+#define pcb_sp u.sp
+	uint64_t	pcb_crmd;
+	uint64_t	pcb_prmd;
+	uint64_t	pcb_euen;
+	uint64_t	pcb_misc;
+	uint64_t	pcb_ecfg;
+	uint64_t	pcb_estat;
+	uint64_t	pcb_era;
+	uint64_t	pcb_badvaddr;
+
+	union {
+		uint64_t pcb_fregs[34];
+		struct {
+			uint64_t a[8];
+			uint64_t t[16];
+			uint64_t s[8];
+			uint64_t pcb_fcsr0;
+		} uf;
+	};
+	uint64_t	pcb_a0;
+	uint64_t pcb_fpflags;
 #define	PCB_FP_STARTED	0x1
 #define	PCB_FP_USERMASK	0x1
 	vm_offset_t	pcb_onfault;	/* Copyinout fault handler */

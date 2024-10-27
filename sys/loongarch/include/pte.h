@@ -42,7 +42,7 @@ typedef	uint64_t	pt_entry_t;		/* page table entry */
 typedef	uint64_t	pn_t;			/* page number */
 #endif
 
-/* Level 0 table, 512GiB per entry, SV48 only */
+/* Level 0 table, 512GiB per entry */
 #define	L0_SHIFT	39
 #define	L0_SIZE		(1UL << L0_SHIFT)
 #define	L0_OFFSET	(L0_SIZE - 1)
@@ -66,31 +66,56 @@ typedef	uint64_t	pn_t;			/* page number */
 #define	Ln_ENTRIES	(1 << Ln_ENTRIES_SHIFT)
 #define	Ln_ADDR_MASK	(Ln_ENTRIES - 1)
 
-/* Bits 9:8 are reserved for software */
-#define	PTE_SW_MANAGED	(1 << 9)
-#define	PTE_SW_WIRED	(1 << 8)
-#define	PTE_D		(1 << 7) /* Dirty */
-#define	PTE_A		(1 << 6) /* Accessed */
-#define	PTE_G		(1 << 5) /* Global */
-#define	PTE_U		(1 << 4) /* User */
-#define	PTE_X		(1 << 3) /* Execute */
-#define	PTE_W		(1 << 2) /* Write */
-#define	PTE_R		(1 << 1) /* Read */
+/* Bits 11:9 are reserved */
+#define	PTE_D		(1 << 1) /* Dirty */
+#define	PTE_G		(1 << 6) /* Global */
+#define PTE_K   (0 << 2) /* kernel, PLV 0 */
+#define	PTE_U		(0x3 << 2) /* User, PLV 3 */
+#define PTE_P   (1 << 7)   /* Present */
+#define PTE_CC  (1 << 4)   /* coherent cached */
+#define PTE_WUC (2 << 4)   /* weakly-order uncached */
+#define PTE_SUC (0 << 4)   /* strongly-order uncached */
+#define	PTE_NX		(1UL << 62) /* Non Execute */
+#define	PTE_NR		(1UL << 61) /* Non Read */
+#define	PTE_W		(1 << 8) /* Write */
 #define	PTE_V		(1 << 0) /* Valid */
-#define	PTE_RWX		(PTE_R | PTE_W | PTE_X)
-#define	PTE_RX		(PTE_R | PTE_X)
-#define	PTE_KERN	(PTE_V | PTE_R | PTE_W | PTE_A | PTE_D)
-#define	PTE_PROMOTE	(PTE_V | PTE_RWX | PTE_D | PTE_G | PTE_U | \
-			 PTE_SW_MANAGED | PTE_SW_WIRED)
+#define PTE_HUGE_G	(1 << 12) /* Huge page G bit */
+#define PTE_HUGE		(1 << 6)  /* Huge page marker */
+#define PTE_READABLE	(PTE_V)
+#define PTE_WRITEABLE	(PTE_D | PTE_W)
 
-/* Bits 63 - 54 are reserved for future use. */
-#define PTE_HI_MASK	0xFFC0000000000000ULL
+#define PTE_RX(pte)  (((pte & PTE_NR) == 0) || ((pte & PTE_NX) == 0))
+#define PTE_RWX(pte) (PTE_RX(pte) || (((pte) & PTE_W) != 0))
 
-#define	PTE_PPN0_S	10
-#define	PTE_PPN1_S	19
-#define	PTE_PPN2_S	28
-#define	PTE_PPN3_S	37
+#define PMD_KERN				(PTE_K | PTE_READABLE | PTE_WRITEABLE | PTE_CC | PTE_P)
+#define PMD_KERN_HUGE		(PTE_K | PTE_READABLE | PTE_WRITEABLE | PTE_CC | PTE_P | PTE_HUGE | PTE_HUGE_G)
+
+#define	PTE_KERN				(PTE_K | PTE_READABLE | PTE_WRITEABLE | PTE_CC | PTE_P | PTE_G)
+#define PTE_KERN_SUC		(PTE_K | PTE_READABLE | PTE_WRITEABLE | PTE_SUC | PTE_P | PTE_G)
+#define PTE_HI_MASK			0xffff000000000000ULL
+
+#define PPNS	L3_SHIFT
+#define PPNS_HUGE_2M	L2_SHIFT
+
 #define	PTE_SIZE	8
+
+#define PTE_WIDTH 	0		/* 64 bit */
+#define PT_BASE			12
+#define PT_WIDTH		9
+#define DIR1_BASE		21
+#define DIR1_WIDTH	9
+#define DIR2_BASE		30
+#define DIR2_WIDTH	9
+#define DIR3_BASE		39
+#define DIR3_WIDTH	9
+#define DIR3_WIDTH_BOOT	0
+#define DIR4_BASE		48
+#define DIR4_WIDTH	0
+
+#define PWCL_BOOT	\
+((PTE_WIDTH << 30)|(DIR2_WIDTH << 25)|(DIR2_BASE << 20)|(DIR1_WIDTH << 15)|(DIR1_BASE << 10)|(PT_WIDTH << 5)|PT_BASE)
+
+#define PWCH_BOOT ((DIR4_WIDTH << 18)|(DIR4_BASE << 12)|(DIR3_WIDTH_BOOT << 6)|DIR3_BASE)
 
 #endif /* !_MACHINE_PTE_H_ */
 

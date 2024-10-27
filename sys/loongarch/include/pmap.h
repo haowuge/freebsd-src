@@ -81,7 +81,8 @@ struct pmap {
 	struct mtx		pm_mtx;
 	struct pmap_statistics	pm_stats;	/* pmap statictics */
 	pd_entry_t		*pm_top;	/* top-level page table page */
-	u_long			pm_satp;	/* value for SATP register */
+	u_long			pm_pgdl;			/* page global directory base address lower half*/
+	u_long			pm_pgdh;			/* page global directory base address higher half*/
 	cpuset_t		pm_active;	/* active on cpus */
 	TAILQ_HEAD(,pv_chunk)	pm_pvchunk;	/* list of mappings in pmap */
 	LIST_ENTRY(pmap)	pm_list;	/* List of all pmaps */
@@ -119,16 +120,14 @@ extern vm_offset_t virtual_end;
 	((((va) | (pa)) & L1_OFFSET) == 0 && (size) >= L1_SIZE)
 
 enum pmap_mode {
-	PMAP_MODE_SV39,
-	PMAP_MODE_SV48,
+	PMAP_MODE_LA48,
 };
 
 extern enum pmap_mode pmap_mode;
 
 /* Check if an address resides in a mappable region. */
 #define	VIRT_IS_VALID(va)						\
-	((va) < (pmap_mode == PMAP_MODE_SV39 ? VM_MAX_USER_ADDRESS_SV39 : \
-	    VM_MAX_USER_ADDRESS_SV48) || (va) >= VM_MIN_KERNEL_ADDRESS)
+	((va) < VM_MAX_USER_ADDRESS)
 
 struct thread;
 
