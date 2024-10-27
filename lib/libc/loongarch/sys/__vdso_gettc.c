@@ -23,6 +23,7 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
 #include <sys/types.h>
 #include <sys/elf.h>
 #include <sys/time.h>

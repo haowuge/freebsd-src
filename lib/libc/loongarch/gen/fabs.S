@@ -38,11 +38,11 @@
 
 #include <machine/asm.h>
 ENTRY(fabs)
-#ifdef __riscv_float_abi_double
-	fabs.d	fa0, fa0
+#ifdef __loongarch_double_float
+	fabs.d	$fa0, $fa0
 #else
-	slli	a0, a0, 1
-	srli	a0, a0, 1
+	slli.d	$a0, $a0, 1
+	srli.d	$a0, $a0, 1
 #endif
-	ret
+	jr	$ra
 END(fabs)

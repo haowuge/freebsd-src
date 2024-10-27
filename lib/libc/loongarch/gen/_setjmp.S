@@ -37,47 +37,40 @@
 
 ENTRY(_setjmp)
 	/* Store the magic value and stack pointer */
-	ld	t0, .Lmagic
-	sd	t0, (0 * 8)(a0)
-	sd	sp, (1 * 8)(a0)
-	addi	a0, a0, (2 * 8)
+	li.d	$t0, .Lmagic
+	st.d	$t0, $a0, (0 * 8)
+	st.d	$sp, $a0, (1 * 8)
+	addi.d	$a0, $a0, (2 * 8)
 
 	/* Store the general purpose registers and ra */
-	sd	s0, (0 * 8)(a0)
-	sd	s1, (1 * 8)(a0)
-	sd	s2, (2 * 8)(a0)
-	sd	s3, (3 * 8)(a0)
-	sd	s4, (4 * 8)(a0)
-	sd	s5, (5 * 8)(a0)
-	sd	s6, (6 * 8)(a0)
-	sd	s7, (7 * 8)(a0)
-	sd	s8, (8 * 8)(a0)
-	sd	s9, (9 * 8)(a0)
-	sd	s10, (10 * 8)(a0)
-	sd	s11, (11 * 8)(a0)
-	sd	ra, (12 * 8)(a0)
-	addi	a0, a0, (13 * 8)
+	st.d	$s0, $a0, (0 * 8)
+	st.d	$s1, $a0, (1 * 8)
+	st.d	$s2, $a0, (2 * 8)
+	st.d	$s3, $a0, (3 * 8)
+	st.d	$s4, $a0, (4 * 8)
+	st.d	$s5, $a0, (5 * 8)
+	st.d	$s6, $a0, (6 * 8)
+	st.d	$s7, $a0, (7 * 8)
+	st.d	$s8, $a0, (8 * 8)
+	st.d	$ra, $a0, (9 * 8)
+	addi.d	$a0, $a0, (10 * 8)
 
-#if !defined(_STANDALONE) && defined(__riscv_float_abi_double)
+#if !defined(_STANDALONE) && defined(__loongarch_double_float)
 	/* Store the fpe registers */
-	fsd	fs0, (0 * 8)(a0)
-	fsd	fs1, (1 * 8)(a0)
-	fsd	fs2, (2 * 8)(a0)
-	fsd	fs3, (3 * 8)(a0)
-	fsd	fs4, (4 * 8)(a0)
-	fsd	fs5, (5 * 8)(a0)
-	fsd	fs6, (6 * 8)(a0)
-	fsd	fs7, (7 * 8)(a0)
-	fsd	fs8, (8 * 8)(a0)
-	fsd	fs9, (9 * 8)(a0)
-	fsd	fs10, (10 * 8)(a0)
-	fsd	fs11, (11 * 8)(a0)
-	addi	a0, a0, (12 * 8)
+	fst.d	$fs0, $a0, (0 * 8)
+	fst.d	$fs1, $a0, (1 * 8)
+	fst.d	$fs2, $a0, (2 * 8)
+	fst.d	$fs3, $a0, (3 * 8)
+	fst.d	$fs4, $a0, (4 * 8)
+	fst.d	$fs5, $a0, (5 * 8)
+	fst.d	$fs6, $a0, (6 * 8)
+	fst.d	$fs7, $a0, (7 * 8)
+	addi.d	$a0, $a0, (8 * 8)
 #endif
 
 	/* Return value */
-	li	a0, 0
-	ret
+	li.d	$a0, 0
+	jr	$ra
 	.align	3
 .Lmagic:
 	.quad	_JB_MAGIC__SETJMP
@@ -85,60 +78,53 @@ END(_setjmp)
 
 ENTRY(_longjmp)
 	/* Check the magic value */
-	ld	t0, 0(a0)
-	ld	t1, .Lmagic
-	bne	t0, t1, botch
+	ld.d	$t0, $a0, 0
+	li.d	$t1, .Lmagic
+	bne	$t0, $t1, botch
 
 	/* Restore the stack pointer */
-	ld	t0, 8(a0)
-	mv	sp, t0
-	addi	a0, a0, (2 * 8)
+	ld.d	$t0, $a0, 8
+	move	$sp, $t0
+	addi.d	$a0, $a0, (2 * 8)
 
 	/* Restore the general purpose registers and ra */
-	ld	s0, (0 * 8)(a0)
-	ld	s1, (1 * 8)(a0)
-	ld	s2, (2 * 8)(a0)
-	ld	s3, (3 * 8)(a0)
-	ld	s4, (4 * 8)(a0)
-	ld	s5, (5 * 8)(a0)
-	ld	s6, (6 * 8)(a0)
-	ld	s7, (7 * 8)(a0)
-	ld	s8, (8 * 8)(a0)
-	ld	s9, (9 * 8)(a0)
-	ld	s10, (10 * 8)(a0)
-	ld	s11, (11 * 8)(a0)
-	ld	ra, (12 * 8)(a0)
-	addi	a0, a0, (13 * 8)
+	ld.d	$s0, $a0, (0 * 8)
+	ld.d	$s1, $a0, (1 * 8)
+	ld.d	$s2, $a0, (2 * 8)
+	ld.d	$s3, $a0, (3 * 8)
+	ld.d	$s4, $a0, (4 * 8)
+	ld.d	$s5, $a0, (5 * 8)
+	ld.d	$s6, $a0, (6 * 8)
+	ld.d	$s7, $a0, (7 * 8)
+	ld.d	$s8, $a0, (8 * 8)
+	ld.d	$ra, $a0, (9 * 8)
+	addi.d	$a0, $a0, (10 * 8)
 
-#if !defined(_STANDALONE) && defined(__riscv_float_abi_double)
+#if !defined(_STANDALONE) && defined(__loongarch_double_float)
 	/* Restore the fpe registers */
-	fld	fs0, (0 * 8)(a0)
-	fld	fs1, (1 * 8)(a0)
-	fld	fs2, (2 * 8)(a0)
-	fld	fs3, (3 * 8)(a0)
-	fld	fs4, (4 * 8)(a0)
-	fld	fs5, (5 * 8)(a0)
-	fld	fs6, (6 * 8)(a0)
-	fld	fs7, (7 * 8)(a0)
-	fld	fs8, (8 * 8)(a0)
-	fld	fs9, (9 * 8)(a0)
-	fld	fs10, (10 * 8)(a0)
-	fld	fs11, (11 * 8)(a0)
-	addi	a0, a0, (12 * 8)
+	fld.d	$fs0, $a0, (0 * 8)
+	fld.d	$fs1, $a0, (1 * 8)
+	fld.d	$fs2, $a0, (2 * 8)
+	fld.d	$fs3, $a0, (3 * 8)
+	fld.d	$fs4, $a0, (4 * 8)
+	fld.d	$fs5, $a0, (5 * 8)
+	fld.d	$fs6, $a0, (6 * 8)
+	fld.d	$fs7, $a0, (7 * 8)
+	addi.d	$a0, $a0, (8 * 8)
 #endif
 
 	/* Load the return value */
-	mv	a0, a1
-	bnez	a1, 1f
-	li	a0, 1
+	move	$a0, $a1
+	bnez	$a1, 1f
+	li.d	$a0, 1
 1:
-	ret
+	jr	$ra
 
 botch:
 #ifdef _STANDALONE
-	j	botch
+	b	botch
 #else
-	call	_C_LABEL(longjmperror)
-	call	_C_LABEL(abort)
+	bl	_C_LABEL(longjmperror)
+	bl	_C_LABEL(abort)
 #endif
 END(_longjmp)
