@@ -1,6 +1,6 @@
+# $FreeBSD$
 
 .PATH: ${.CURDIR:H}/common
-
-CRT1OBJS+=	crt1_s.o
-
+CFLAGS+=	-DCRT_IRELOC_SUPPRESS
+CRT1BOJS+=	crt1_s.o
 .include <bsd.lib.mk>
