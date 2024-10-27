@@ -30,6 +30,8 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ *	from: @(#)vmparam.h     5.9 (Berkeley) 5/12/91
  *	from: FreeBSD: src/sys/i386/include/vmparam.h,v 1.33 2000/03/30
  */
 
@@ -111,58 +113,18 @@
 
 /**
  * Address space layout.
- *
- * RISC-V implements multiple paging modes with different virtual address space
- * sizes: SV32, SV39, SV48 and SV57.  Only SV39 and SV48 are supported by
- * FreeBSD.  SV39 provides a 512GB virtual address space and uses three-level
- * page tables, while SV48 provides a 256TB virtual address space and uses
- * four-level page tables.  64-bit RISC-V implementations are required to provide
- * at least SV39 mode; locore initially enables SV39 mode while bootstrapping
- * page tables, and pmap_bootstrap() optionally switches to SV48 mode.
- *
- * The address space is split into two regions at each end of the 64-bit address
- * space; the lower region is for use by user mode software, while the upper
- * region is used for various kernel maps.  The kernel map layout in SV48 mode
- * is currently identical to that used in SV39 mode.
- *
- * SV39 memory map:
- * 0x0000000000000000 - 0x0000003fffffffff    256GB user map
- * 0x0000004000000000 - 0xffffffbfffffffff    unmappable
- * 0xffffffc000000000 - 0xffffffc7ffffffff    32GB kernel map
- * 0xffffffc800000000 - 0xffffffcfffffffff    32GB unused
- * 0xffffffd000000000 - 0xffffffefffffffff    128GB direct map
- * 0xfffffff000000000 - 0xffffffffffffffff    64GB unused
- *
- * SV48 memory map:
- * 0x0000000000000000 - 0x00007fffffffffff    128TB user map
- * 0x0000800000000000 - 0xffff7fffffffffff    unmappable
- * 0xffff800000000000 - 0xffffffc7ffffffff    127.75TB hole
- * 0xffffffc000000000 - 0xffffffc7ffffffff    32GB kernel map
- * 0xffffffc800000000 - 0xffffffcfffffffff    32GB unused
- * 0xffffffd000000000 - 0xffffffefffffffff    128GB direct map
- * 0xfffffff000000000 - 0xffffffffffffffff    64GB unused
- *
- * The kernel is loaded at the beginning of the kernel map.
- *
- * We define some interesting address constants:
- *
- * VM_MIN_ADDRESS and VM_MAX_ADDRESS define the start and end of the entire
- * 64 bit address space, mostly just for convenience.
- *
- * VM_MIN_KERNEL_ADDRESS and VM_MAX_KERNEL_ADDRESS define the start and end of
- * mappable kernel virtual address space.
- *
- * VM_MIN_USER_ADDRESS and VM_MAX_USER_ADDRESS define the start and end of the
- * user address space.
  */
+
 #define	VM_MIN_ADDRESS		(0x0000000000000000UL)
 #define	VM_MAX_ADDRESS		(0xffffffffffffffffUL)
 
-#define	VM_MIN_KERNEL_ADDRESS	(0xffffffc000000000UL)
-#define	VM_MAX_KERNEL_ADDRESS	(0xffffffc800000000UL)
+/* 128G kernel space */
+#define	VM_MIN_KERNEL_ADDRESS	(0xffff800000000000UL)
+#define	VM_MAX_KERNEL_ADDRESS	(0xffff802000000000UL)
 
-#define	DMAP_MIN_ADDRESS	(0xffffffd000000000UL)
-#define	DMAP_MAX_ADDRESS	(0xfffffff000000000UL)
+/* 256G direct map */
+#define	DMAP_MIN_ADDRESS	(0xffffc04000000000UL)
+#define	DMAP_MAX_ADDRESS	(0xffffc08000000000UL)
 
 #define	DMAP_MIN_PHYSADDR	(dmap_phys_base)
 #define	DMAP_MAX_PHYSADDR	(dmap_phys_max)
@@ -191,23 +153,19 @@
 	((va) - DMAP_MIN_ADDRESS) + dmap_phys_base;			\
 })
 
-#define	VM_MIN_USER_ADDRESS		(0x0000000000000000UL)
-#define	VM_MAX_USER_ADDRESS_SV39	(0x0000004000000000UL)
-#define	VM_MAX_USER_ADDRESS_SV48	(0x0000800000000000UL)
-#define	VM_MAX_USER_ADDRESS		VM_MAX_USER_ADDRESS_SV48
+/* 4T of user space */
+#define	VM_MIN_USER_ADDRESS		(0x00000000000UL)
+#define	VM_MAX_USER_ADDRESS		(0x40000000000UL)
 
 #define	VM_MINUSER_ADDRESS	(VM_MIN_USER_ADDRESS)
 #define	VM_MAXUSER_ADDRESS	(VM_MAX_USER_ADDRESS)
 
 #define	KERNBASE		(VM_MIN_KERNEL_ADDRESS)
-#define	SHAREDPAGE_SV39		(VM_MAX_USER_ADDRESS_SV39 - PAGE_SIZE)
-#define	SHAREDPAGE_SV48		(VM_MAX_USER_ADDRESS_SV48 - PAGE_SIZE)
-#define	SHAREDPAGE		SHAREDPAGE_SV48
-#define	USRSTACK_SV39		SHAREDPAGE_SV39
-#define	USRSTACK_SV48		SHAREDPAGE_SV48
-#define	USRSTACK		USRSTACK_SV48
-#define	PS_STRINGS_SV39		(USRSTACK_SV39 - sizeof(struct ps_strings))
-#define	PS_STRINGS_SV48		(USRSTACK_SV48 - sizeof(struct ps_strings))
+#define	SHAREDPAGE		(VM_MAX_USER_ADDRESS - PAGE_SIZE)
+#define	USRSTACK		SHAREDPAGE
+#define	PS_STRINGS		(USRSTACK - sizeof(struct ps_strings))
+
+#define	VM_EARLY_DTB_ADDRESS	(VM_MAX_KERNEL_ADDRESS - (2 * L2_SIZE))
 
 /*
  * How many physical pages per kmem arena virtual page.
@@ -232,22 +190,20 @@
 #define	VM_INITIAL_PAGEIN	16
 #endif
 
-#define UMA_USE_DMAP
+#define	UMA_MD_SMALL_ALLOC
 
 #ifndef LOCORE
 extern vm_paddr_t dmap_phys_base;
 extern vm_paddr_t dmap_phys_max;
 extern vm_offset_t dmap_max_addr;
+extern vm_offset_t vm_max_kernel_address;
+extern vm_offset_t init_pt_va;
 #endif
 
 #define	ZERO_REGION_SIZE	(64 * 1024)	/* 64KB */
 
-/*
- * The top of KVA is reserved for early device mappings.
- */
 #define	DEVMAP_MAX_VADDR	VM_MAX_KERNEL_ADDRESS
-#define	DEVMAP_MIN_VADDR	(DEVMAP_MAX_VADDR - PMAP_MAPDEV_EARLY_SIZE)
-#define	PMAP_MAPDEV_EARLY_SIZE	(4 * L2_SIZE)
+#define	PMAP_MAPDEV_EARLY_SIZE	L2_SIZE
 
 /*
  * No non-transparent large page support in the pmap.
@@ -258,6 +214,5 @@ extern vm_offset_t dmap_max_addr;
  * Need a page dump array for minidump.
  */
 #define MINIDUMP_PAGE_TRACKING	1
-#define MINIDUMP_STARTUP_PAGE_TRACKING 1
 
 #endif /* !_MACHINE_VMPARAM_H_ */

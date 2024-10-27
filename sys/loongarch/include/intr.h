@@ -35,23 +35,76 @@
 #ifndef	_MACHINE_INTR_MACHDEP_H_
 #define	_MACHINE_INTR_MACHDEP_H_
 
-#ifndef	NIRQ
-#define	NIRQ			1024
+#define MAX_IO_PICS 2
+#define NR_IRQS (64 + (256 * MAX_IO_PICS))
+
+#define	NIRQ		NR_IRQS
+
+#ifdef INTRNG
+#include <sys/intr.h>
 #endif
 
+struct trapframe;
+
+int loongarch_teardown_intr(void *);
+int loongarch_setup_intr(const char *, driver_filter_t *, driver_intr_t *,
+    void *, int, int, void **);
+void loongarch_cpu_intr(struct trapframe *);
+
+typedef unsigned long * loongarch_intrcnt_t;
+
+loongarch_intrcnt_t loongarch_intrcnt_create(const char *);
+void loongarch_intrcnt_setname(loongarch_intrcnt_t, const char *);
+
+#ifdef SMP
+void loongarch_setup_ipihandler(driver_filter_t *);
+void loongarch_unmask_ipi(void);
+#endif
+
+#define CORES_PER_EIO_NODE  4
+
+#define LOONGSON_CPU_UART0_VEC    10 /* CPU UART0 */
+#define LOONGSON_CPU_THSENS_VEC   14 /* CPU Thsens */
+#define LOONGSON_CPU_HT0_VEC    16 /* CPU HT0 irq vector base number */
+#define LOONGSON_CPU_HT1_VEC    24 /* CPU HT1 irq vector base number */
+
+/* IRQ number definitions */
+#define LOONGSON_LPC_IRQ_BASE   0
+#define LOONGSON_LPC_LAST_IRQ   (LOONGSON_LPC_IRQ_BASE + 15)
+
+#define LOONGSON_CPU_IRQ_BASE   16
+#define LOONGSON_CPU_LAST_IRQ   (LOONGSON_CPU_IRQ_BASE + 14)
+
+#define LOONGSON_PCH_IRQ_BASE   64
+#define LOONGSON_PCH_ACPI_IRQ   (LOONGSON_PCH_IRQ_BASE + 47)
+#define LOONGSON_PCH_LAST_IRQ   (LOONGSON_PCH_IRQ_BASE + 64 - 1)
+
+#define LOONGSON_MSI_IRQ_BASE   (LOONGSON_PCH_IRQ_BASE + 64)
+#define LOONGSON_MSI_LAST_IRQ   (LOONGSON_PCH_IRQ_BASE + 256 - 1)
+
+#define GSI_MIN_LPC_IRQ   LOONGSON_LPC_IRQ_BASE
+#define GSI_MAX_LPC_IRQ   (LOONGSON_LPC_IRQ_BASE + 16 - 1)
+#define GSI_MIN_CPU_IRQ   LOONGSON_CPU_IRQ_BASE
+#define GSI_MAX_CPU_IRQ   (LOONGSON_CPU_IRQ_BASE + 48 - 1)
+#define GSI_MIN_PCH_IRQ   LOONGSON_PCH_IRQ_BASE
+#define GSI_MAX_PCH_IRQ   (LOONGSON_PCH_IRQ_BASE + 256 - 1)
+
 enum {
-	IRQ_SOFTWARE_USER,
-	IRQ_SOFTWARE_SUPERVISOR,
-	IRQ_SOFTWARE_HYPERVISOR,
-	IRQ_SOFTWARE_MACHINE,
-	IRQ_TIMER_USER,
-	IRQ_TIMER_SUPERVISOR,
-	IRQ_TIMER_HYPERVISOR,
-	IRQ_TIMER_MACHINE,
-	IRQ_EXTERNAL_USER,
-	IRQ_EXTERNAL_SUPERVISOR,
-	IRQ_EXTERNAL_HYPERVISOR,
-	IRQ_EXTERNAL_MACHINE,
+	IRQ_SWI0,
+	IRQ_SWI1,
+	IRQ_HWI0,
+	IRQ_HWI1,
+	IRQ_HWI2,
+	IRQ_HWI3,
+	IRQ_HWI4,
+	IRQ_HWI5,
+	IRQ_HWI6,
+	IRQ_HWI7,
+	IRQ_PCOV, /* Performance counter overflow */
+	IRQ_TI,   /* Timer */
+	IRQ_IPI,
+	IRQ_NMI,
+	INTC_NIRQS
 };
 
 #endif /* !_MACHINE_INTR_MACHDEP_H_ */

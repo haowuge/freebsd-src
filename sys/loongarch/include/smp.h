@@ -37,18 +37,19 @@
 
 #include <machine/pcb.h>
 
-enum {
-	IPI_AST,
-	IPI_PREEMPT,
-	IPI_RENDEZVOUS,
-	IPI_STOP,
-	IPI_STOP_HARD,
-	IPI_HARDCLOCK,
-	INTR_IPI_COUNT
-};
+#define	IPI_AST		(1 << 0)
+#define	IPI_PREEMPT	(1 << 1)
+#define	IPI_RENDEZVOUS	(1 << 2)
+#define	IPI_STOP	(1 << 3)
+#define	IPI_STOP_HARD	(1 << 4)
+#define	IPI_HARDCLOCK	(1 << 5)
+
+#define	INTR_IPI_COUNT	1
 
 void ipi_all_but_self(u_int ipi);
 void ipi_cpu(int cpu, u_int ipi);
 void ipi_selected(cpuset_t cpus, u_int ipi);
+uint32_t ipi_read_clear(int cpu);
+void csr_mail_send(uint64_t data, int cpu, int mailbox);
 
 #endif /* !_MACHINE_SMP_H_ */

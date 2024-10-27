@@ -17,7 +17,7 @@
 # in NOTES.
 #
 
-cpu		RISCV
+cpu		LoongArch
 ident		GENERIC
 
 makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
@@ -54,7 +54,6 @@ options 	GEOM_RAID		# Soft RAID functionality.
 options 	GEOM_LABEL		# Provides labelization
 options 	COMPAT_FREEBSD12	# Compatible with FreeBSD12
 options 	COMPAT_FREEBSD13	# Compatible with FreeBSD13
-options 	COMPAT_FREEBSD14	# Compatible with FreeBSD14
 options 	SCSI_DELAY=5000		# Delay (in ms) before probing SCSI
 options 	KTRACE			# ktrace(1) support
 options 	STACK			# stack(9) support
@@ -69,31 +68,26 @@ options 	AUDIT			# Security event auditing
 options 	CAPABILITY_MODE		# Capsicum capability mode
 options 	CAPABILITIES		# Capsicum capabilities
 options 	MAC			# TrustedBSD MAC Framework
-options 	KDTRACE_FRAME		# Ensure frames are compiled in
-options 	KDTRACE_HOOKS		# Kernel DTrace hooks
 options 	DDB_CTF			# Kernel ELF linker loads CTF data
 options 	RACCT			# Resource accounting framework
 options 	RACCT_DEFAULT_TO_DISABLED # Set kern.racct.enable=0 by default
 options 	RCTL			# Resource limits
 options 	SMP
 
-# RISC-V SBI console
-device		rcons
+
+options		FDT
 
 # pseudo devices
 device		clk
 device		hwreset
-device		phy
-device		regulator
 device		syscon
 device		syscon_power
-device		riscv_syscon
+device		loongarch_syscon
 
 # Bus drivers
 device		pci
 
 # Block devices
-device		ahci
 device		scbus
 device		da
 
@@ -119,15 +113,21 @@ device		uhci			# UHCI USB interface
 device		ehci			# EHCI USB interface (USB 2.0)
 device		xhci			# XHCI USB interface (USB 3.0)
 device		usb			# USB Bus (required)
-device		usbhid			# USB HID Transport
-device		hkbd			# Keyboard
 device		ukbd			# Keyboard
 device		umass			# Disks/Mass storage - Requires scbus and da
 
 # HID support
 options 	HID_DEBUG	# enable debug msgs
 device		hid		# Generic HID support
-device		hidbus		# Generic HID Bus
+
+# DTrace support
+# device	dtrace
+# device	dtrace_profile
+# device	dtrace_sdt
+# device	dtrace_fbt
+# device	dtrace_systrace
+# device	dtrace_prototype
+# device	dtraceall
 
 # Serial (COM) ports
 device		uart		# Generic UART driver
@@ -142,6 +142,7 @@ device		kbdmux
 device		goldfish_rtc	# QEMU RTC
 
 # Ethernet drivers
+device		cgem		# Cadence GEM Gigabit Ethernet device
 device		miibus		# MII bus support
 device		xae		# Xilinx AXI Ethernet MAC
 
@@ -156,19 +157,24 @@ device		gpio
 device		spibus
 device		spigen
 
+# Power management controllers
+# device		da9063_pmic	# Dialog Semiconductor DA9063 PMIC
+
+# Uncomment for memory disk
+# options 	MD_ROOT
+# options 	MD_ROOT_SIZE=32768	# 32MB ram disk
+# makeoptions	MFS_IMAGE=/path/to/img
+# options 	ROOTDEVNAME=\"ufs:/dev/md0\"
+
+# Uncomment for virtio block device
+# options 	ROOTDEVNAME=\"ufs:/dev/vtbd0\"
+
 # Debugging support.  Always need this:
 options 	KDB			# Enable kernel debugger support.
 options 	KDB_TRACE		# Print a stack trace for a panic.
-# For full debugger support use (turn off in stable branch):
-include "std.debug"
-# options 	EARLY_PRINTF=sbi
 
 # Kernel dump features.
-options 	EKCD			# Support for encrypted kernel dumps
-options 	GZIO			# gzip-compressed kernel and user dumps
 options 	ZSTDIO			# zstd-compressed kernel and user dumps
-options 	DEBUGNET		# debugnet networking
-options 	NETDUMP			# netdump(4) client support
 
 # Pseudo devices.
 device		crypto		# core crypto support
@@ -180,24 +186,12 @@ device		md		# Memory "disks"
 device		gif		# IPv6 and IPv4 tunneling
 device		firmware	# firmware assist module
 
-# MMC/SD/SDIO Card slot support
-device		sdhci
-device		mmc			# MMC/SD bus
-device		mmcsd			# MMC/SD flash cards
-
 # The `bpf' device enables the Berkeley Packet Filter.
 # Be aware of the administrative consequences of enabling this!
 # Note that 'bpf' is required for DHCP.
 device		bpf		# Berkeley packet filter
 
-# Flattened Device Tree
-options 	FDT
-
 # I2C support
 device		iicbus		# Bus support, required for iicoc below.
 device		iicoc		# OpenCores I2C controller support
 
-# Include SoC specific configuration
-include		"std.allwinner"
-include		"std.sifive"
-include		"std.starfive"

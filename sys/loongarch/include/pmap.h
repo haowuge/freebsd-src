@@ -67,22 +67,26 @@ struct md_page {
 	vm_memattr_t		pv_memattr;
 };
 
-enum pmap_stage {
-	PM_INVALID,
-	PM_STAGE1,
-	PM_STAGE2,
+/*
+ * This structure is used to hold a virtual<->physical address
+ * association and is used mostly by bootstrap code
+ */
+struct pv_addr {
+	SLIST_ENTRY(pv_addr) pv_list;
+	vm_offset_t	pv_va;
+	vm_paddr_t	pv_pa;
 };
 
 struct pmap {
 	struct mtx		pm_mtx;
 	struct pmap_statistics	pm_stats;	/* pmap statictics */
 	pd_entry_t		*pm_top;	/* top-level page table page */
-	u_long			pm_satp;	/* value for SATP register */
+	u_long			pm_pgdl;			/* page global directory base address lower half*/
+	u_long			pm_pgdh;			/* page global directory base address higher half*/
 	cpuset_t		pm_active;	/* active on cpus */
 	TAILQ_HEAD(,pv_chunk)	pm_pvchunk;	/* list of mappings in pmap */
 	LIST_ENTRY(pmap)	pm_list;	/* List of all pmaps */
 	struct vm_radix		pm_root;
-	enum pmap_stage		pm_stage;
 };
 
 typedef struct pmap *pmap_t;
@@ -116,16 +120,14 @@ extern vm_offset_t virtual_end;
 	((((va) | (pa)) & L1_OFFSET) == 0 && (size) >= L1_SIZE)
 
 enum pmap_mode {
-	PMAP_MODE_SV39,
-	PMAP_MODE_SV48,
+	PMAP_MODE_LA48,
 };
 
 extern enum pmap_mode pmap_mode;
 
 /* Check if an address resides in a mappable region. */
 #define	VIRT_IS_VALID(va)						\
-	((va) < (pmap_mode == PMAP_MODE_SV39 ? VM_MAX_USER_ADDRESS_SV39 : \
-	    VM_MAX_USER_ADDRESS_SV48) || (va) >= VM_MIN_KERNEL_ADDRESS)
+	((va) < VM_MAX_USER_ADDRESS)
 
 struct thread;
 
@@ -133,7 +135,7 @@ struct thread;
 
 void	pmap_activate_boot(pmap_t);
 void	pmap_activate_sw(struct thread *);
-void	pmap_bootstrap(vm_paddr_t, vm_size_t);
+void	pmap_bootstrap(vm_offset_t, vm_paddr_t, vm_size_t);
 int	pmap_change_attr(vm_offset_t va, vm_size_t size, int mode);
 void	pmap_kenter(vm_offset_t sva, vm_size_t size, vm_paddr_t pa, int mode);
 void	pmap_kenter_device(vm_offset_t, vm_size_t, vm_paddr_t);
@@ -141,7 +143,6 @@ vm_paddr_t pmap_kextract(vm_offset_t va);
 void	pmap_kremove(vm_offset_t);
 void	pmap_kremove_device(vm_offset_t, vm_size_t);
 void	*pmap_mapdev_attr(vm_paddr_t pa, vm_size_t size, vm_memattr_t ma);
-int	pmap_pinit_stage(pmap_t, enum pmap_stage);
 bool	pmap_page_is_mapped(vm_page_t m);
 bool	pmap_ps_enabled(pmap_t);
 
