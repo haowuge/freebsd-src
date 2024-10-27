@@ -33,27 +33,16 @@
  */
 
 #include <machine/asm.h>
-#include <machine/setjmp.h>
-
-ENTRY(sigsetjmp)
-	beqz	$a1, 1f
-	b	_C_LABEL(setjmp)
-1:
-	b	_C_LABEL(_setjmp)
-END(sigsetjmp)
-
-ENTRY(siglongjmp)
-	/* Load the _setjmp magic */
-	ld.d	$a2, .Lmagic
-	ld.d	$a3, $a0, 0
-
-	/* Check the magic */
-	beq	$a2, $a3, 1f
-	b	_C_LABEL(longjmp)
-1:
-	b	_C_LABEL(_longjmp)
-
-	.align	3
-.Lmagic:
-	.quad	_JB_MAGIC__SETJMP
-END(siglongjmp)
+ENTRY(cerror)
+	addi.d	$sp, $sp, -16
+	st.d	$a0, $sp, 0
+	st.d	$ra, $sp, 8
+	bl	_C_LABEL(__error)
+	ld.d	$a1, $sp, 0
+	ld.d	$ra, $sp, 8
+	st.w	$a1, $a0, 0
+	li.d	$a0, -1
+	li.d	$a1, -1
+	addi.d	$sp, $sp, 16
+	jr	$ra
+END(cerror)

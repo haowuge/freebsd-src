@@ -1,4 +1,5 @@
 /*-
+ * Copyright (c) 2014 Andrew Turner
  * Copyright (c) 2015 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
@@ -32,28 +33,38 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/syscall.h>
 #include <machine/asm.h>
-#include <machine/setjmp.h>
 
-ENTRY(sigsetjmp)
-	beqz	$a1, 1f
-	b	_C_LABEL(setjmp)
-1:
-	b	_C_LABEL(_setjmp)
-END(sigsetjmp)
+#define	_SYSCALL(name)						\
+	li.d	$a7, SYS_ ## name;				\
+	syscall 0
 
-ENTRY(siglongjmp)
-	/* Load the _setjmp magic */
-	ld.d	$a2, .Lmagic
-	ld.d	$a3, $a0, 0
+#define	SYSCALL(name)						\
+ENTRY(__sys_##name);						\
+	WEAK_REFERENCE(__sys_##name, name);			\
+	WEAK_REFERENCE(__sys_##name, _##name);			\
+	_SYSCALL(name);						\
+	jr	$ra;							\
+END(__sys_##name)
 
-	/* Check the magic */
-	beq	$a2, $a3, 1f
-	b	_C_LABEL(longjmp)
-1:
-	b	_C_LABEL(_longjmp)
+#define	PSEUDO(name)						\
+ENTRY(__sys_##name);						\
+	WEAK_REFERENCE(__sys_##name, _##name);			\
+	_SYSCALL(name);						\
+	bnez	$t0, 1f; 					\
+	jr	$ra;							\
+1:	la	$t1, cerror;					\
+	jr	$t1;						\
+END(__sys_##name)
 
-	.align	3
-.Lmagic:
-	.quad	_JB_MAGIC__SETJMP
-END(siglongjmp)
+#define	RSYSCALL(name)						\
+ENTRY(__sys_##name);						\
+	WEAK_REFERENCE(__sys_##name, name);			\
+	WEAK_REFERENCE(__sys_##name, _##name);			\
+	_SYSCALL(name);						\
+	bnez	$t0, 1f; 					\
+	jr	$ra;							\
+1:	la	$t1, cerror;					\
+	jr	$t1;						\
+END(__sys_##name)

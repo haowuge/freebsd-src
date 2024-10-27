@@ -1,14 +1,5 @@
 /*-
- * Copyright (c) 2015 Ruslan Bukin <br@bsdpad.com>
- * All rights reserved.
- *
- * Portions of this software were developed by SRI International and the
- * University of Cambridge Computer Laboratory under DARPA/AFRL contract
- * FA8750-10-C-0237 ("CTSRD"), as part of the DARPA CRASH research programme.
- *
- * Portions of this software were developed by the University of Cambridge
- * Computer Laboratory as part of the CTSRD Project, with support from the
- * UK Higher Education Innovation Fund (HEIF).
+ * Copyright (c) 2021 Jessica Clarke
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,28 +23,32 @@
  * SUCH DAMAGE.
  */
 
-#include <machine/asm.h>
-#include <machine/setjmp.h>
+#include <sys/cdefs.h>
+#include <sys/types.h>
+#include <sys/elf.h>
+#include <sys/time.h>
+#include <sys/vdso.h>
 
-ENTRY(sigsetjmp)
-	beqz	$a1, 1f
-	b	_C_LABEL(setjmp)
-1:
-	b	_C_LABEL(_setjmp)
-END(sigsetjmp)
+#include <machine/riscvreg.h>
 
-ENTRY(siglongjmp)
-	/* Load the _setjmp magic */
-	ld.d	$a2, .Lmagic
-	ld.d	$a3, $a0, 0
+#include <errno.h>
 
-	/* Check the magic */
-	beq	$a2, $a3, 1f
-	b	_C_LABEL(longjmp)
-1:
-	b	_C_LABEL(_longjmp)
+#include "libc_private.h"
 
-	.align	3
-.Lmagic:
-	.quad	_JB_MAGIC__SETJMP
-END(siglongjmp)
+#pragma weak __vdso_gettc
+int
+__vdso_gettc(const struct vdso_timehands *th, u_int *tc)
+{
+	if (th->th_algo != VDSO_TH_ALGO_RISCV_RDTIME)
+		return (ENOSYS);
+
+	*tc = csr_read(time);
+	return (0);
+}
+
+#pragma weak __vdso_gettimekeep
+int
+__vdso_gettimekeep(struct vdso_timekeep **tk)
+{
+	return (_elf_aux_info(AT_TIMEKEEP, tk, sizeof(*tk)));
+}

@@ -1,7 +1,14 @@
 /*-
- * Copyright (c) 2002, 2003 David Schultz <das@FreeBSD.ORG>
- * Copyright (c) 2014 The FreeBSD Foundation
+ * Copyright (c) 2015 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
+ *
+ * Portions of this software were developed by SRI International and the
+ * University of Cambridge Computer Laboratory under DARPA/AFRL contract
+ * FA8750-10-C-0237 ("CTSRD"), as part of the DARPA CRASH research programme.
+ *
+ * Portions of this software were developed by the University of Cambridge
+ * Computer Laboratory as part of the CTSRD Project, with support from the
+ * UK Higher Education Innovation Fund (HEIF).
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,31 +32,21 @@
  * SUCH DAMAGE.
  */
 
-union IEEEl2bits {
-	long double	e;
-	struct {
-		unsigned long	manl	:64;
-		unsigned long	manh	:48;
-		unsigned int	exp	:15;
-		unsigned int	sign	:1;
-	} bits;
-	struct {
-		unsigned long	manl	:64;
-		unsigned long	manh	:48;
-		unsigned int	expsign	:16;
-	} xbits;
-};
+#include <machine/asm.h>
+#include "SYS.h"
 
-#define	LDBL_NBIT	0
-#define	LDBL_IMPLICIT_NBIT
-#define	mask_nbit_l(u)	((void)0)
+ENTRY(__sys_vfork)
+	WEAK_REFERENCE(__sys_vfork, vfork)
+	WEAK_REFERENCE(__sys_vfork, _vfork)
+	move	$a2, $ra
 
-#define	LDBL_MANH_SIZE	48
-#define	LDBL_MANL_SIZE	64
+	_SYSCALL(vfork)
+	bnez	$t0, 1f
+	addi.d	$a1, $a1, -1
+	and	$a0, $a0, $a1
+	move	$ra, $a2
 
-#define	LDBL_TO_ARRAY32(u, a) do {			\
-	(a)[0] = (uint32_t)(u).bits.manl;		\
-	(a)[1] = (uint32_t)((u).bits.manl >> 32);	\
-	(a)[2] = (uint32_t)(u).bits.manh;		\
-	(a)[3] = (uint32_t)((u).bits.manh >> 32);	\
-} while(0)
+	jr	$ra
+1:	la	$t1, cerror
+	jr	$t1
+END(__sys_vfork)
