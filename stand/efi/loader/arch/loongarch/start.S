@@ -27,13 +27,8 @@
 
 #include <machine/asm.h>
 
-/*
- * We need to be a PE32+ file for EFI. On some architectures we can use
- * objcopy to create the correct file, however on RISC-V we need to do
- * it ourselves.
- */
-
-#define	IMAGE_FILE_MACHINE_RISCV64	0x5064
+#define	IMAGE_FILE_MACHINE_LOONGARCH32	0x6232
+#define	IMAGE_FILE_MACHINE_LOONGARCH64	0x6264
 
 #define	IMAGE_SCN_CNT_CODE		0x00000020
 #define	IMAGE_SCN_CNT_INITIALIZED_DATA	0x00000040
@@ -55,7 +50,7 @@ pe_sig:
 	.ascii	"PE"
 	.short	0
 coff_head:
-	.short	IMAGE_FILE_MACHINE_RISCV64	/* RISC-V 64 file */
+	.short	IMAGE_FILE_MACHINE_LOONGARCH64	/* loongarch 64 file */
 	.short	2				/* 2 Sections */
 	.long	0				/* Timestamp */
 	.long	0				/* No symbol table */
@@ -141,26 +136,26 @@ _end_header:
 	.globl	_start
 _start:
 	/* Save the boot params to the stack */
-	addi	sp, sp, -16
-	sd	a0, 0(sp)
-	sd	a1, 8(sp)
+	addi.d	$sp, $sp, -16
+	st.d	$a0, $sp, 0
+	st.d	$a1, $sp, 8
 
 	/* Zero the BSS */
-	lla	t0, __bss_start
-	lla	t1, __bss_end
+	la.local	$t0, __bss_start
+	la.local	$t1, __bss_end
 
-1:	sd	zero, 0(t0)
-	addi	t0, t0, 8
-	bltu	t0, t1, 1b
+1:	st.d	$zero, $t0, 0
+	addi.d	$t0, $t0, 8
+	bltu	$t0, $t1, 1b
 
-	lla	a0, ImageBase
-	lla	a1, _DYNAMIC
-	call	_C_LABEL(self_reloc)
+	la.local	$a0, ImageBase
+	la.local	$a1, _DYNAMIC
+	bl	_C_LABEL(self_reloc)
 
-	ld	a1, 8(sp)
-	ld	a0, 0(sp)
-	tail	_C_LABEL(efi_main)
+	ld.d	$a1, $sp, 8
+	ld.d	$a0, $sp, 0
+	bl	_C_LABEL(efi_main)
 
 	/* NOTREACHED */
-2:	wfi
-	j	2b
+2:	idle	0
+	b	2b
