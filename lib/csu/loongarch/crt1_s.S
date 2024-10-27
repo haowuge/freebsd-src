@@ -35,17 +35,21 @@
 
 #include <machine/asm.h>
 ENTRY(_start)
-	mv	a3, a2		# cleanup
-	addi	a1, a0, 8	# get argv
-	ld	a0, 0(a0)	# load argc
-	slli	t0, a0, 3	# mult by arg size
-	add	a2, a1, t0	# env is after argv
-	addi	a2, a2, 8	# argv is null terminated
-	.option push
-	.option norelax
-	lla	gp, __global_pointer$
-	.option pop
-	call	__start
-END(_start)
+	.cfi_label .Ldummy
+        .cfi_undefined 1
+	move		a3, a2    	# cleanup
+	addi		a1, a0, 8	# argv
+	ld.d		a0, a0, 0	# argc
+	slli.d		t0, a0, 3	# argv + argc * 8 => argv end
+	add.d		a2, a1, t0	# env is after argv
+	addi.d		a2, a2, 8	# argv is null terminated
 
+        /* Adjust $sp for 16-aligned */
+        BSTRINS         sp, zero, 3, 0
+	/* __start(argc, argv, env, cleanup) */
+        la              ra, t0, __start
+        jirl            ra, ra, 0
+
+END(_start)
 	.section .note.GNU-stack,"",%progbits
+
