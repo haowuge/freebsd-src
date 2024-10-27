@@ -37,25 +37,25 @@
 #include <machine/asm.h>
 
 #define	_SYSCALL(name)						\
-	li	t0, SYS_ ## name;				\
-	ecall
+	li.d	$a7, SYS_ ## name;				\
+	syscall 0
 
 #define	SYSCALL(name)						\
 ENTRY(__sys_##name);						\
 	WEAK_REFERENCE(__sys_##name, name);			\
 	WEAK_REFERENCE(__sys_##name, _##name);			\
 	_SYSCALL(name);						\
-	ret;							\
+	jr	$ra;							\
 END(__sys_##name)
 
 #define	PSEUDO(name)						\
 ENTRY(__sys_##name);						\
 	WEAK_REFERENCE(__sys_##name, _##name);			\
 	_SYSCALL(name);						\
-	bnez	t0, 1f; 					\
-	ret;							\
-1:	la	t1, cerror;					\
-	jr	t1;						\
+	bnez	$t0, 1f; 					\
+	jr	$ra;							\
+1:	la	$t1, cerror;					\
+	jr	$t1;						\
 END(__sys_##name)
 
 #define	RSYSCALL(name)						\
@@ -63,8 +63,8 @@ ENTRY(__sys_##name);						\
 	WEAK_REFERENCE(__sys_##name, name);			\
 	WEAK_REFERENCE(__sys_##name, _##name);			\
 	_SYSCALL(name);						\
-	bnez	t0, 1f; 					\
-	ret;							\
-1:	la	t1, cerror;					\
-	jr	t1;						\
+	bnez	$t0, 1f; 					\
+	jr	$ra;							\
+1:	la	$t1, cerror;					\
+	jr	$t1;						\
 END(__sys_##name)

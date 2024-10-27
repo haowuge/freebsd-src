@@ -36,22 +36,22 @@
 #include <machine/setjmp.h>
 
 ENTRY(sigsetjmp)
-	beqz	a1, 1f
-	tail	_C_LABEL(setjmp)
+	beqz	$a1, 1f
+	b	_C_LABEL(setjmp)
 1:
-	tail	_C_LABEL(_setjmp)
+	b	_C_LABEL(_setjmp)
 END(sigsetjmp)
 
 ENTRY(siglongjmp)
 	/* Load the _setjmp magic */
-	ld	a2, .Lmagic
-	ld	a3, 0(a0)
+	ld.d	$a2, .Lmagic
+	ld.d	$a3, $a0, 0
 
 	/* Check the magic */
-	beq	a2, a3, 1f
-	tail	_C_LABEL(longjmp)
+	beq	$a2, $a3, 1f
+	b	_C_LABEL(longjmp)
 1:
-	tail	_C_LABEL(_longjmp)
+	b	_C_LABEL(_longjmp)
 
 	.align	3
 .Lmagic:

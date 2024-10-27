@@ -2,6 +2,7 @@
  * infinity.c
  */
 
+#include <sys/cdefs.h>
 #include <math.h>
 
 /* bytes for +Infinity on riscv */
