@@ -133,6 +133,8 @@ typedef	u_int32_t u32;
 #define MEMORY_BARRIER()	dmb(sy)
 #elif	defined __riscv
 #define MEMORY_BARRIER()	fence()
+#elif  defined __loongarch__
+#define MEMORY_BARRIER()    mb()
 #else
 #error	"Not supported platform"
 #endif
