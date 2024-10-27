@@ -48,7 +48,7 @@ uint64_t set_gp(struct Struct_Obj_Entry *obj);
 #define rtld_dynamic(obj)                                               \
 ({                                                                      \
 	Elf_Addr _dynamic_addr;                                         \
-	__asm __volatile("lla       %0, _DYNAMIC" : "=r"(_dynamic_addr));   \
+	__asm __volatile("la    %0, _DYNAMIC" : "=r"(_dynamic_addr));   \
 	(const Elf_Dyn *)_dynamic_addr;                                 \
 })
 
@@ -60,20 +60,10 @@ Elf_Addr reloc_jmpslot(Elf_Addr *where, Elf_Addr target,
 	((defobj)->relocbase + (def)->st_value)
 
 #define call_initfini_pointer(obj, target)				\
-({									\
-	uint64_t old0;							\
-	old0 = set_gp(obj);						\
-	(((InitFunc)(target))());					\
-	__asm __volatile("mv    gp, %0" :: "r"(old0));			\
-})
+	(((InitFunc)(target))());
 
 #define call_init_pointer(obj, target)					\
-({									\
-	uint64_t old1;							\
-	old1 = set_gp(obj);						\
-	(((InitArrFunc)(target))(main_argc, main_argv, environ));	\
-	__asm __volatile("mv    gp, %0" :: "r"(old1));			\
-})
+	(((InitArrFunc)(target))(main_argc, main_argv, environ));
 
 #define	call_ifunc_resolver(ptr) \
 	(((Elf_Addr (*)(void))ptr)())
