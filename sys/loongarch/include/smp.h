@@ -49,5 +49,7 @@
 void ipi_all_but_self(u_int ipi);
 void ipi_cpu(int cpu, u_int ipi);
 void ipi_selected(cpuset_t cpus, u_int ipi);
+uint32_t ipi_read_clear(int cpu);
+void csr_mail_send(uint64_t data, int cpu, int mailbox);
 
 #endif /* !_MACHINE_SMP_H_ */

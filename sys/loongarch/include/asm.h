@@ -57,16 +57,13 @@
 	.set alias,sym
 
 #define	SET_FAULT_HANDLER(handler, tmp)					\
-	ld	tmp, PC_CURTHREAD(tp);					\
-	ld	tmp, TD_PCB(tmp);		/* Load the pcb */	\
-	sd	handler, PCB_ONFAULT(tmp)	/* Set the handler */
+	ld.d	tmp, $tp, PC_CURTHREAD;					\
+	ld.d	tmp, tmp, TD_PCB;		/* Load the pcb */	\
+	st.d	handler, tmp, PCB_ONFAULT	/* Set the handler */
 
-#define	ENTER_USER_ACCESS(tmp)						\
-	li	tmp, SSTATUS_SUM;					\
-	csrs	sstatus, tmp
+/* do nothing */
+#define	ENTER_USER_ACCESS(tmp)
 
-#define	EXIT_USER_ACCESS(tmp)						\
-	li	tmp, SSTATUS_SUM;					\
-	csrc	sstatus, tmp
+#define	EXIT_USER_ACCESS(tmp)
 
 #endif /* _MACHINE_ASM_H_ */
