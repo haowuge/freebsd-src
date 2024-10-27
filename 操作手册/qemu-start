@@ -1,0 +1,32 @@
+
+# 创建 ZFS 虚拟卷
+# zfs create -V 5g rpool/LoongBSD0
+# 创建 GPT 分区表
+# gpart create -s GPT /dev/zvol/rpool/LoongBSD0
+# gpart add -a 4k -s 512M -t efi /dev/zvol/rpool/LoongBSD0
+# gpart add -a 1m -t freebsd-ufs /dev/zvol/rpool/LoongBSD0
+# 查看分区结构
+# gpart show /dev/zvol/rpool/LoongBSD0
+# 格式化 UEFI 分区
+# newfs_msdos -F 32 -c 1 /dev/zvol/rpool/LoongBSD0p1
+# 挂载分区
+# mount /dev/zvol/rpool/LoongBSD0p2 /mnt/LoongBSD/
+# mount_msdosfs /dev/zvol/rpool/LoongBSD0p1 /mnt/LoongBSD/newboot
+
+qemu-system-loongarch64 -m 1G -smp 4 \
+ -bios ./QEMU_EFI_hitmoon.fd \
+ -serial stdio \
+ -device virtio-gpu-pci \
+ -device nec-usb-xhci,id=xhci,addr=0x1b \
+ -device usb-tablet,id=tablet,bus=xhci.0,port=1 \
+ -device usb-kbd,id=keyboard,bus=xhci.0,port=2 \
+ -device virtio-blk-pci,drive=hd0 \
+ -drive id=hd0,file=/dev/zvol/rpool/LoongBSD0,if=none \
+ --machine virt
+#edk2-loongarch64-code.fd QEMU_EFI_8.2.fd
+#-device virtio-blk-pci,drive=hd0 \
+#-drive id=hd0,file=/dev/zvol/data/vm/ls0,if=none \
+#-drive id=test,file=/home/others/iso/archlinux-minimal-2023.05.10-loong64.qcow2,if=none \
+#-cpu la464-loongarch-cpu
+#-hda ".../qcow2"
+
