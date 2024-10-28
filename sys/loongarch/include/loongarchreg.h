@@ -1138,7 +1138,7 @@
 #define  IOCSR_MBUF_SEND_BUF_SHIFT	32
 #define  IOCSR_MBUF_SEND_H32_MASK	0xFFFFFFFF00000000ULL
 
-#define LOONGARCH_IOCSR_ANY_SEND	0x1158
+#define  LOONGARCH_IOCSR_ANY_SEND	0x1158
 #define  IOCSR_ANY_SEND_BLOCKING	BIT_ULL(31)
 #define  IOCSR_ANY_SEND_CPU_SHIFT	16
 #define  IOCSR_ANY_SEND_MASK_SHIFT	27
@@ -1146,8 +1146,8 @@
 #define  IOCSR_ANY_SEND_H32_MASK	0xFFFFFFFF00000000ULL
 
 /* Register offset and bit definition for CSR access */
-#define LOONGARCH_IOCSR_TIMER_CFG       0x1060
-#define LOONGARCH_IOCSR_TIMER_TICK      0x1070
+#define  LOONGARCH_IOCSR_TIMER_CFG       0x1060
+#define  LOONGARCH_IOCSR_TIMER_TICK      0x1070
 #define  IOCSR_TIMER_CFG_RESERVED       (_ULCAST_(1) << 63)
 #define  IOCSR_TIMER_CFG_PERIODIC       (_ULCAST_(1) << 62)
 #define  IOCSR_TIMER_CFG_EN             (_ULCAST_(1) << 61)
@@ -1326,8 +1326,8 @@ change_##name(unsigned long change, unsigned long val)		\
 #define EXCCODE_TLBNX		6	/* TLB Execution-Inhibit exception */
 #define EXCCODE_TLBPE		7	/* TLB Privilege Error */
 #define EXCCODE_ADE		8	/* Address Error */
-	#define EXSUBCODE_ADEF		0	/* Fetch Instruction */
-	#define EXSUBCODE_ADEM		1	/* Access Memory*/
+#define EXSUBCODE_ADEF		0	/* Fetch Instruction */
+#define EXSUBCODE_ADEM		1	/* Access Memory*/
 #define EXCCODE_ALE		9	/* Unalign Access */
 #define EXCCODE_BCE		10	/* Bounds Check Error */
 #define EXCCODE_SYS		11	/* System call */
@@ -1338,18 +1338,18 @@ change_##name(unsigned long change, unsigned long val)		\
 #define EXCCODE_LSXDIS		16	/* LSX Disabled */
 #define EXCCODE_LASXDIS		17	/* LASX Disabled */
 #define EXCCODE_FPE		18	/* Floating Point Exception */
-	#define EXCSUBCODE_FPE		0	/* Floating Point Exception */
-	#define EXCSUBCODE_VFPE		1	/* Vector Exception */
+#define EXCSUBCODE_FPE		0	/* Floating Point Exception */
+#define EXCSUBCODE_VFPE		1	/* Vector Exception */
 #define EXCCODE_WATCH		19	/* WatchPoint Exception */
-	#define EXCSUBCODE_WPEF		0	/* ... on Instruction Fetch */
-	#define EXCSUBCODE_WPEM		1	/* ... on Memory Accesses */
+#define EXCSUBCODE_WPEF		0	/* ... on Instruction Fetch */
+#define EXCSUBCODE_WPEM		1	/* ... on Memory Accesses */
 #define EXCCODE_BTDIS		20	/* Binary Trans. Disabled */
 #define EXCCODE_BTE		21	/* Binary Trans. Exception */
 #define EXCCODE_GSPR		22	/* Guest Privileged Error */
 #define EXCCODE_HVC		23	/* Hypercall */
 #define EXCCODE_GCM		24	/* Guest CSR modified */
-	#define EXCSUBCODE_GCSC		0	/* Software caused */
-	#define EXCSUBCODE_GCHC		1	/* Hardware caused */
+#define EXCSUBCODE_GCSC		0	/* Software caused */
+#define EXCSUBCODE_GCHC		1	/* Hardware caused */
 #define EXCCODE_SE		25	/* Security */
 
 /* Interrupt numbers */
