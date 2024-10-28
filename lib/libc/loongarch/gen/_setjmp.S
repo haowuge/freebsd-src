@@ -37,7 +37,7 @@
 
 ENTRY(_setjmp)
 	/* Store the magic value and stack pointer */
-	li.d	$t0, .Lmagic
+	la	$t0, .Lmagic
 	st.d	$t0, $a0, (0 * 8)
 	st.d	$sp, $a0, (1 * 8)
 	addi.d	$a0, $a0, (2 * 8)
@@ -79,7 +79,7 @@ END(_setjmp)
 ENTRY(_longjmp)
 	/* Check the magic value */
 	ld.d	$t0, $a0, 0
-	li.d	$t1, .Lmagic
+	la	$t1, .Lmagic
 	bne	$t0, $t1, botch
 
 	/* Restore the stack pointer */
