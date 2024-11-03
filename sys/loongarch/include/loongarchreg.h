@@ -1443,4 +1443,9 @@ do {	\
 	: : "r" (val));	\
 } while (0)
 
+#define XLEN        __loongarch_xlen
+#define XLEN_BYTES  (XLEN / 8)
+#define INSN_SIZE   4
+#define INSN_C_SIZE 2
+
 #endif /* !_MACHINE_LOONGARCH_H_ */
