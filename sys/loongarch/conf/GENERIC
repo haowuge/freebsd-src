@@ -133,6 +133,9 @@ device		hid		# Generic HID support
 device		uart		# Generic UART driver
 device		uart_ns8250	# ns8250-type UART driver
 
+
+device      puc         # Multi I/O cards and multi-channel UARTs
+
 # Console
 device		vt
 device		kbdmux
@@ -194,3 +197,6 @@ device		bpf		# Berkeley packet filter
 device		iicbus		# Bus support, required for iicoc below.
 device		iicoc		# OpenCores I2C controller support
 
+# EFI devices
+device      efidev          # EFI pseudo-device
+device      efirtc          # EFI RTC
