@@ -58,7 +58,7 @@
 #include <machine/smp.h>
 #endif
 
-void intr_irq_handler(struct trapframe *tf);
+void intr_irq_handler(struct trapframe *tf, uint32_t rootnum);
 
 struct intc_irqsrc {
 	struct intr_irqsrc	isrc;
@@ -212,7 +212,7 @@ loongarch_cpu_intr(struct trapframe *frame)
 	case IRQ_HWI7:
 	case IRQ_PCOV:
 	case IRQ_IPI:
-		intr_irq_handler(frame);
+		intr_irq_handler(frame, INTR_ROOT_IRQ);
 		break;
 	}
 }

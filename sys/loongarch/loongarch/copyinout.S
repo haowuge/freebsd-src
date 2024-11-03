@@ -58,18 +58,18 @@ END(copyio_fault)
  * a2 - Size of copy
  */
 	.macro copycommon
-	li.d	$a6, copyio_fault	/* Get the handler address */
+	la	$a6, copyio_fault	/* Get the handler address */
 	SET_FAULT_HANDLER($a6, $a7)	/* Set the handler */
 	ENTER_USER_ACCESS($a7)
 
-	li.d	$t2, XLEN_BYTES
+	li.d	$t2, 8
 	blt	$a2, $t2, 4f		/* Byte-copy if len < XLEN_BYTES */
 
 	/*
 	 * Compare lower bits of src and dest.
 	 * If they are aligned with each other, we can do word copy.
 	 */
-	li.d	$t2, (XLEN_BYTES-1)
+	li.d	$t2, 7
 	and	$t0, $a0, $t2			/* Low bits of src */
 	and	$t1, $a1, $t2			/* Low bits of dest */
 	bne	$t0, $t1, 4f		/* Misaligned. Go to byte copy */
@@ -81,19 +81,19 @@ END(copyio_fault)
 	st.b	$a4, $a1, 0		/* Store byte in dest */
 	addi.d	$a1, $a1, 1
 	addi.d	$a2, $a2, -1		/* len-- */
-	li.d	$t1, (XLEN_BYTES-1)
+	li.d	$t1, 7
 	and	$t0, $a0, $t1
 	bnez	$t0, $1b
-	li.d	$t3, 3f
+	la	$t3, 3f
 	jr	$t3
 
 	/* Copy words */
 2:	ld.w	$a4, $a0, 0		/* Load word from src */
-	li.d	$t0, XLEN_BYTES
+	li.d	$t0, 8
 	add.d	$a0, $a0, $t0
 	st.w	$a4, $a1, 0		/* Store word in dest */
 	add.d	$a1, $a1, $t0
-	li.d	$t0, -XLEN_BYTES
+	li.d	$t0, -8
 	add.d	$a2, $a2, $t0		/* len -= XLEN_BYTES */
 3:	bgeu	$a2, $t2, 2b		/* Again if len >= XLEN_BYTES */
 
@@ -157,7 +157,7 @@ ENTRY(copyinstr)
 	move	$a5, $zero	/* count = 0 */
 	beqz	$a2, 3f		/* If len == 0 then skip loop */
 
-	li.d	$a6, copyio_fault /* Get the handler address */
+	la	$a6, copyio_fault /* Get the handler address */
 	SET_FAULT_HANDLER($a6, $a7) /* Set the handler */
 	ENTER_USER_ACCESS($a7)
 

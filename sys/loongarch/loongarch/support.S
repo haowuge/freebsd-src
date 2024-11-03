@@ -55,7 +55,7 @@ END(fsu_fault)
 ENTRY(casueword32)
 	li.d	$a4, (VM_MAXUSER_ADDRESS-3)
 	bgeu	$a0, $a4, fsu_fault_nopcb
-	li.d	$a6, fsu_fault		/* Load the fault handler */
+	la	$a6, fsu_fault		/* Load the fault handler */
 	SET_FAULT_HANDLER($a6, $a4)	/* And set it */
 	ENTER_USER_ACCESS($a4)
 	ll.w	$a4, $a0, 0		/* Load-exclusive the data */
@@ -77,7 +77,7 @@ END(casueword32)
 ENTRY(casueword)
 	li.d	$a4, (VM_MAXUSER_ADDRESS-7)
 	bgeu	$a0, $a4, fsu_fault_nopcb
-	li.d	$a6, fsu_fault		/* Load the fault handler */
+	la	$a6, fsu_fault		/* Load the fault handler */
 	SET_FAULT_HANDLER($a6, $a4)	/* And set it */
 	ENTER_USER_ACCESS($a4)
 	ll.d	$a4, $a0, 0		/* Load-exclusive the data */
@@ -99,7 +99,7 @@ END(casueword)
 ENTRY(fubyte)
 	li.d	$a1, VM_MAXUSER_ADDRESS
 	bgeu	$a0, $a1, fsu_fault_nopcb
-	li.d	$a6, fsu_fault		/* Load the fault handler */
+	la	$a6, fsu_fault		/* Load the fault handler */
 	SET_FAULT_HANDLER($a6, $a1)	/* And set it */
 	ENTER_USER_ACCESS($a1)
 	ld.bu	$a0, $a0, 0		/* Try loading the data */
@@ -114,7 +114,7 @@ END(fubyte)
 ENTRY(fuword16)
 	li.d	$a1, (VM_MAXUSER_ADDRESS-1)
 	bgeu	$a0, $a1, fsu_fault_nopcb
-	li.d	$a6, fsu_fault		/* Load the fault handler */
+	la	$a6, fsu_fault		/* Load the fault handler */
 	SET_FAULT_HANDLER($a6, $a1)	/* And set it */
 	ENTER_USER_ACCESS($a1)
 	ld.hu	$a0, $a0, 0		/* Try loading the data */
@@ -129,7 +129,7 @@ END(fuword16)
 ENTRY(fueword32)
 	li.d	$a2, (VM_MAXUSER_ADDRESS-3)
 	bgeu	$a0, $a2, fsu_fault_nopcb
-	li.d	$a6, fsu_fault		/* Load the fault handler */
+	la	$a6, fsu_fault		/* Load the fault handler */
 	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
 	ENTER_USER_ACCESS($a2)
 	ld.w	$a0, $a0, 0		/* Try loading the data */
@@ -148,7 +148,7 @@ ENTRY(fueword)
 EENTRY(fueword64)
 	li.d	$a2, (VM_MAXUSER_ADDRESS-7)
 	bgeu	$a0, $a2, fsu_fault_nopcb
-	li.d	$a6, fsu_fault		/* Load the fault handler */
+	la	$a6, fsu_fault		/* Load the fault handler */
 	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
 	ENTER_USER_ACCESS($a2)
 	ld.d	$a0, $a0, 0		/* Try loading the data */
@@ -166,7 +166,7 @@ END(fueword)
 ENTRY(subyte)
 	li.d	$a2, VM_MAXUSER_ADDRESS
 	bgeu	$a0, $a2, fsu_fault_nopcb
-	li.d	$a6, fsu_fault		/* Load the fault handler */
+	la	$a6, fsu_fault		/* Load the fault handler */
 	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
 	ENTER_USER_ACCESS($a2)
 	st.b	$a1, $a0, 0		/* Try storing the data */
@@ -182,7 +182,7 @@ END(subyte)
 ENTRY(suword16)
 	li.d	$a2, (VM_MAXUSER_ADDRESS-1)
 	bgeu	$a0, $a2, fsu_fault_nopcb
-	li.d	$a6, fsu_fault		/* Load the fault handler */
+	la	$a6, fsu_fault		/* Load the fault handler */
 	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
 	ENTER_USER_ACCESS($a2)
 	st.h	$a1, $a0, 0		/* Try storing the data */
@@ -198,7 +198,7 @@ END(suword16)
 ENTRY(suword32)
 	li.d	$a2, (VM_MAXUSER_ADDRESS-3)
 	bgeu	$a0, $a2, fsu_fault_nopcb
-	li.d	$a6, fsu_fault		/* Load the fault handler */
+	la	$a6, fsu_fault		/* Load the fault handler */
 	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
 	ENTER_USER_ACCESS($a2)
 	st.w	$a1, $a0, 0		/* Try storing the data */
@@ -215,7 +215,7 @@ ENTRY(suword)
 EENTRY(suword64)
 	li.d	$a2, (VM_MAXUSER_ADDRESS-7)
 	bgeu	$a0, $a2, fsu_fault_nopcb
-	li.d	$a6, fsu_fault		/* Load the fault handler */
+	la	$a6, fsu_fault		/* Load the fault handler */
 	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
 	ENTER_USER_ACCESS($a2)
 	st.d	$a1, $a0, 0		/* Try storing the data */
