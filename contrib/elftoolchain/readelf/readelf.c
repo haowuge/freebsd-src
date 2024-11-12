@@ -456,6 +456,13 @@ static struct eflags_desc riscv_eflags_desc[] = {
 	{0, NULL}
 };
 
+static struct eflags_desc loongarch_eflags_desc[] = {
+    //{EF_RISCV_RVC, "RVC"},
+    //{EF_RISCV_RVE, "RVE"},
+    //{EF_RISCV_TSO, "TSO"},
+    {0, NULL}
+};
+
 static struct eflags_desc sparc_eflags_desc[] = {
 	{EF_SPARC_32PLUS, "v8+"},
 	{EF_SPARC_SUN_US1, "ultrasparcI"},
@@ -593,6 +600,7 @@ elf_machine(unsigned int mach)
 	case EM_UNICORE: return "Microprocessor series from PKU-Unity Ltd";
 	case EM_AARCH64: return "AArch64";
 	case EM_RISCV: return "RISC-V";
+	case EM_LOONGARCH return "LoongArch";
 	default:
 		snprintf(s_mach, sizeof(s_mach), "<unknown: %#x>", mach);
 		return (s_mach);
@@ -2437,6 +2445,23 @@ dump_eflags(struct readelf *re, uint64_t e_flags)
 			break;
 		}
 		edesc = riscv_eflags_desc;
+		break;
+	case EM_LOONGARCH:
+		switch (e_flags & EF_LOONGARCH_ABI_LP64_DOUBLE_FLOAT) {
+		case EF_LOONGARCH_ABI_SOFT_FLOAT:
+			printf(", soft-float ABI");
+			break;
+		case EF_LOONGARCH_ABI_SINGLE_FLOAT:
+			printf(", single-float ABI");
+			break;
+		case EF_LOONGARCH_ABI_DOUBLE_FLOAT:
+			printf(", double-float ABI");
+			break;
+		case EF_LOONGARCH_ABI_MODIFIER_MASK:
+			printf(", modifier-mask ABI");
+			break;
+		}
+		edesc = loongarch_eflags_desc;
 		break;
 	case EM_SPARC:
 	case EM_SPARC32PLUS:
