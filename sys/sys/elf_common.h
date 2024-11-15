@@ -383,12 +383,20 @@ typedef struct {
 #define	EF_RISCV_RVE		0x00000008
 #define	EF_RISCV_TSO		0x00000010
 
-#define EF_LOONGARCH_ABI_LP64_SOFT_FLOAT    0x1
-#define EF_LOONGARCH_ABI_LP64_SINGLE_FLOAT  0x2
-#define EF_LOONGARCH_ABI_LP64_DOUBLE_FLOAT  0x3
-#define EF_LOONGARCH_ABI_ILP32_SOFT_FLOAT   0x5
-#define EF_LOONGARCH_ABI_ILP32_SINGLE_FLOAT 0x6
-#define EF_LOONGARCH_ABI_ILP32_DOUBLE_FLOAT 0x7
+// Definitions from LoongArch ELF psABI v2.01.
+// Reference: https://github.com/loongson/LoongArch-Documentation
+// (commit hash 296de4def055c871809068e0816325a4ac04eb12)
+
+// LoongArch Base ABI Modifiers
+#define	EF_LOONGARCH_ABI_SOFT_FLOAT	0x1
+#define	EF_LOONGARCH_ABI_SINGLE_FLOAT	0x2
+#define	EF_LOONGARCH_ABI_DOUBLE_FLOAT	0x3
+#define	EF_LOONGARCH_ABI_MODIFIER_MASK	0x7
+
+// LoongArch Object file ABI versions
+#define	EF_LOONGARCH_OBJABI_V0		0x0
+#define	EF_LOONGARCH_OBJABI_V1		0x40
+#define	EF_LOONGARCH_OBJABI_MASK	0xC0
 
 #define	EF_SPARC_EXT_MASK	0x00ffff00
 #define	EF_SPARC_32PLUS		0x00000100

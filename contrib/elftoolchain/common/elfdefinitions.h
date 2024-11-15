@@ -480,12 +480,6 @@ _ELF_DEFINE_EF(EF_LOONGARCH_ABI_SINGLE_FLOAT, 	0x00000002UL,	\
 	"LP64 ABI with single precision floating point")		\
 _ELF_DEFINE_EF(EF_LOONGARCH_ABI_DOUBLE_FLOAT,	0x00000003UL,	\
 	"LP64 ABI with double precision floating point")		\
-_ELF_DEFINE_EF(EF_LOONGARCH_ABI_ILP32_SOFT_FLOAT,	0x00000005UL,	\
-	"ILP32 ABI with software floating point emulation")		\
-_ELF_DEFINE_EF(EF_LOONGARCH_ABI_ILP32_SINGLE_FLOAT,	0x00000006UL,	\
-	"ILP32 ABI with single precision floating point")		\
-_ELF_DEFINE_EF(EF_LOONGARCH_ABI_ILP32_DOUBLE_FLOAT, 	0x00000007UL,	\
-	"ILP32 ABI with double precision floating point")		\
 _ELF_DEFINE_EF(EF_SPARC_EXT_MASK,   0x00ffff00UL,			\
 	"Vendor Extension mask")					\
 _ELF_DEFINE_EF(EF_SPARC_32PLUS,     0x00000100UL,			\
