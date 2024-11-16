@@ -306,6 +306,7 @@ typedef struct {
 				   and MPRC of Peking University */
 #define	EM_AARCH64	183	/* AArch64 (64-bit ARM) */
 #define	EM_RISCV	243	/* RISC-V */
+#define	EM_LOONGARCH	258	/* LoongArch */
 
 /* Non-standard or deprecated. */
 #define	EM_486		6	/* Intel i486. */
