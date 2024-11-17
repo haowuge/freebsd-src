@@ -456,6 +456,12 @@ static struct eflags_desc riscv_eflags_desc[] = {
 	{0, NULL}
 };
 
+static struct eflags_desc loongarch_eflags_desc[] = {
+	{EF_LOONGARCH_OBJABI_V0, "OBJ-v0"},
+	{EF_LOONGARCH_OBJABI_V1, "OBJ-v1"},
+	{0, NULL}
+};
+
 static struct eflags_desc sparc_eflags_desc[] = {
 	{EF_SPARC_32PLUS, "v8+"},
 	{EF_SPARC_SUN_US1, "ultrasparcI"},
@@ -2438,6 +2444,23 @@ dump_eflags(struct readelf *re, uint64_t e_flags)
 			break;
 		}
 		edesc = riscv_eflags_desc;
+		break;
+	case EM_LOONGARCH:
+		switch (e_flags & EF_LOONGARCH_ABI_MODIFIER_MASK) {
+		case EF_LOONGARCH_ABI_SOFT_FLOAT:
+			printf(", SOFT-FLOAT");
+			break;
+		case EF_LOONGARCH_ABI_SINGLE_FLOAT:
+			printf(", SINGLE-FLOAT");
+			break;
+		case EF_LOONGARCH_ABI_DOUBLE_FLOAT:
+			printf(", DOUBLE-FLOAT");
+			break;
+		case EF_LOONGARCH_ABI_MODIFIER_MASK:
+			printf(", MODIFIER-MASK");
+			break;
+		}
+		edesc = loongarch_eflags_desc;
 		break;
 	case EM_SPARC:
 	case EM_SPARC32PLUS:

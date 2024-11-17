@@ -33,7 +33,7 @@
  *   See: http://www.sco.com/developers/gabi/latest/ch4.intro.html
  * - The May 1998 (version 1.5) draft of "The ELF-64 object format".
  * - Processor-specific ELF ABI definitions for sparc, i386, amd64, mips,
- *   ia64, powerpc, and RISC-V processors.
+ *   ia64, powerpc, RISC-V, and LoongArch processors.
  * - The "Linkers and Libraries Guide", from Sun Microsystems.
  */
 
@@ -474,6 +474,20 @@ _ELF_DEFINE_EF(EF_RISCV_RVE,	    0x00000008UL,			\
 	"RV32E embedded ABI")						\
 _ELF_DEFINE_EF(EF_RISCV_TSO,	    0x00000010UL,			\
 	"RVTSO memory consistency model")				\
+_ELF_DEFINE_EF(EF_LOONGARCH_ABI_SOFT_FLOAT,	0x00000001UL,		\
+        "LoongArch LP64 ABI with software floating point emulation")	\
+_ELF_DEFINE_EF(EF_LOONGARCH_ABI_SINGLE_FLOAT,   0x00000002UL,		\
+        "LoongArch LP64 ABI with single precision floating point")	\
+_ELF_DEFINE_EF(EF_LOONGARCH_ABI_DOUBLE_FLOAT,   0x00000003UL,		\
+        "LoongArch LP64 ABI with double precision floating point")	\
+_ELF_DEFINE_EF(EF_LOONGARCH_ABI_MODIFIER_MASK,	0x00000007UL,		\
+	"LoongArch LP64 ABI floating point modifiers")			\
+_ELF_DEFINE_EF(EF_LOONGARCH_OBJABI_V0,		0x00000000UL,		\
+        "LoongArch Object file ABI versions")				\
+_ELF_DEFINE_EF(EF_LOONGARCH_OBJABI_V1,		0x00000040UL,		\
+        "LoongArch Object file ABI versions 1")				\
+_ELF_DEFINE_EF(EF_LOONGARCH_OBJABI_MASK,	0x000000C0UL,		\
+        "LoongArch Object File ABI Version Mask")			\
 _ELF_DEFINE_EF(EF_SPARC_EXT_MASK,   0x00ffff00UL,			\
 	"Vendor Extension mask")					\
 _ELF_DEFINE_EF(EF_SPARC_32PLUS,     0x00000100UL,			\
