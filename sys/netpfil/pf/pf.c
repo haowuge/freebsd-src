@@ -126,6 +126,14 @@ SDT_PROBE_DEFINE5(pf, ip, state, lookup, "struct pfi_kkif *",
     "struct pf_kstate *");
 SDT_PROBE_DEFINE2(pf, ip, , bound_iface, "struct pf_kstate *",
     "struct pfi_kkif *");
+SDT_PROBE_DEFINE4(pf, ip, route_to, entry, "struct mbuf *",
+    "struct pf_pdesc *", "struct pf_kstate *", "struct ifnet *");
+SDT_PROBE_DEFINE1(pf, ip, route_to, drop, "int");
+SDT_PROBE_DEFINE2(pf, ip, route_to, output, "struct ifnet *", "int");
+SDT_PROBE_DEFINE4(pf, ip6, route_to, entry, "struct mbuf *",
+    "struct pf_pdesc *", "struct pf_kstate *", "struct ifnet *");
+SDT_PROBE_DEFINE1(pf, ip6, route_to, drop, "int");
+SDT_PROBE_DEFINE2(pf, ip6, route_to, output, "struct ifnet *", "int");
 SDT_PROBE_DEFINE4(pf, sctp, multihome, test, "struct pfi_kkif *",
     "struct pf_krule *", "struct mbuf *", "int");
 SDT_PROBE_DEFINE2(pf, sctp, multihome, add, "uint32_t",
@@ -576,8 +584,10 @@ static bool
 pf_is_loopback(sa_family_t af, struct pf_addr *addr)
 {
 	switch (af) {
+#ifdef INET
 	case AF_INET:
 		return IN_LOOPBACK(ntohl(addr->v4.s_addr));
+#endif
 	case AF_INET6:
 		return IN6_IS_ADDR_LOOPBACK(&addr->v6);
 	default:
@@ -1431,7 +1441,9 @@ keyattach:
 					s->timeout = PFTM_UNLINKED;
 					PF_HASHROW_UNLOCK(ih);
 					KEYS_UNLOCK();
-					uma_zfree(V_pf_state_key_z, sk);
+					uma_zfree(V_pf_state_key_z, skw);
+					if (skw != sks)
+						uma_zfree(V_pf_state_key_z, sks);
 					if (idx == PF_SK_STACK)
 						pf_detach_state(s);
 					return (EEXIST); /* collision! */
@@ -1797,6 +1809,9 @@ pf_find_state_all(const struct pf_state_key_cmp *key, u_int dir, int *more)
 	struct pf_state_key	*sk;
 	struct pf_kstate	*s, *ret = NULL;
 	int			 idx, inout = 0;
+
+	if (more != NULL)
+		*more = 0;
 
 	pf_counter_u64_add(&V_pf_status.fcounters[FCNT_STATE_SEARCH], 1);
 
@@ -7653,6 +7668,8 @@ pf_route(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 
 	KASSERT(m && *m && r && oifp, ("%s: invalid parameters", __func__));
 
+	SDT_PROBE4(pf, ip, route_to, entry, *m, pd, s, oifp);
+
 	if (s) {
 		r_rt = s->rt;
 		r_dir = s->direction;
@@ -7670,6 +7687,7 @@ pf_route(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 	    pd->pf_mtag->routed++ > 3) {
 		m0 = *m;
 		*m = NULL;
+		SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 		goto bad_locked;
 	}
 
@@ -7692,6 +7710,7 @@ pf_route(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 			} else {
 				m0 = *m;
 				*m = NULL;
+				SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 				goto bad;
 			}
 		} else {
@@ -7725,6 +7744,7 @@ pf_route(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 		if (TAILQ_EMPTY(&r->rpool.list)) {
 			DPFPRINTF(PF_DEBUG_URGENT,
 			    ("%s: TAILQ_EMPTY(&r->rpool.list)\n", __func__));
+			SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 			goto bad_locked;
 		}
 		pf_map_addr(AF_INET, r, (struct pf_addr *)&ip->ip_src,
@@ -7757,18 +7777,24 @@ pf_route(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 		PF_STATE_UNLOCK(s);
 	}
 
-	if (ifp == NULL)
+	if (ifp == NULL) {
+		SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 		goto bad;
+	}
 
 	if (pd->dir == PF_IN) {
 		if (pf_test(AF_INET, PF_OUT, PFIL_FWD, ifp, &m0, inp,
-		    &pd->act) != PF_PASS)
+		    &pd->act) != PF_PASS) {
+			SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 			goto bad;
-		else if (m0 == NULL)
+		} else if (m0 == NULL) {
+			SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 			goto done;
+		}
 		if (m0->m_len < sizeof(struct ip)) {
 			DPFPRINTF(PF_DEBUG_URGENT,
 			    ("%s: m0->m_len < sizeof(struct ip)\n", __func__));
+			SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 			goto bad;
 		}
 		ip = mtod(m0, struct ip *);
@@ -7827,8 +7853,10 @@ pf_route(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 
 		md = m0;
 		error = pf_dummynet_route(pd, s, r, ifp, sintosa(&dst), &md);
-		if (md != NULL)
+		if (md != NULL) {
 			error = (*ifp->if_output)(ifp, md, sintosa(&dst), NULL);
+			SDT_PROBE2(pf, ip, route_to, output, ifp, error);
+		}
 		goto done;
 	}
 
@@ -7844,14 +7872,19 @@ pf_route(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 
 			icmp_error(m0, ICMP_UNREACH, ICMP_UNREACH_NEEDFRAG, 0,
 			    ifp->if_mtu);
+			SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 			goto done;
-		} else
+		} else {
+			SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 			goto bad;
+		}
 	}
 
 	error = ip_fragment(ip, &m0, ifp->if_mtu, ifp->if_hwassist);
-	if (error)
+	if (error) {
+		SDT_PROBE1(pf, ip, route_to, drop, __LINE__);
 		goto bad;
+	}
 
 	for (; m0; m0 = m1) {
 		m1 = m0->m_nextpkt;
@@ -7862,9 +7895,11 @@ pf_route(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 			pd->pf_mtag = pf_find_mtag(md);
 			error = pf_dummynet_route(pd, s, r, ifp,
 			    sintosa(&dst), &md);
-			if (md != NULL)
+			if (md != NULL) {
 				error = (*ifp->if_output)(ifp, md,
 				    sintosa(&dst), NULL);
+				SDT_PROBE2(pf, ip, route_to, output, ifp, error);
+			}
 		} else
 			m_freem(m0);
 	}
@@ -7901,6 +7936,8 @@ pf_route6(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 
 	KASSERT(m && *m && r && oifp, ("%s: invalid parameters", __func__));
 
+	SDT_PROBE4(pf, ip6, route_to, entry, *m, pd, s, oifp);
+
 	if (s) {
 		r_rt = s->rt;
 		r_dir = s->direction;
@@ -7918,6 +7955,7 @@ pf_route6(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 	    pd->pf_mtag->routed++ > 3) {
 		m0 = *m;
 		*m = NULL;
+		SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
 		goto bad_locked;
 	}
 
@@ -7940,6 +7978,7 @@ pf_route6(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 			} else {
 				m0 = *m;
 				*m = NULL;
+				SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
 				goto bad;
 			}
 		} else {
@@ -7973,6 +8012,7 @@ pf_route6(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 		if (TAILQ_EMPTY(&r->rpool.list)) {
 			DPFPRINTF(PF_DEBUG_URGENT,
 			    ("%s: TAILQ_EMPTY(&r->rpool.list)\n", __func__));
+			SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
 			goto bad_locked;
 		}
 		pf_map_addr(AF_INET6, r, (struct pf_addr *)&ip6->ip6_src,
@@ -8007,19 +8047,25 @@ pf_route6(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 	if (s)
 		PF_STATE_UNLOCK(s);
 
-	if (ifp == NULL)
+	if (ifp == NULL) {
+		SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
 		goto bad;
+	}
 
 	if (pd->dir == PF_IN) {
 		if (pf_test(AF_INET6, PF_OUT, PFIL_FWD, ifp, &m0, inp,
-		    &pd->act) != PF_PASS)
+		    &pd->act) != PF_PASS) {
+			SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
 			goto bad;
-		else if (m0 == NULL)
+		} else if (m0 == NULL) {
+			SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
 			goto done;
+		}
 		if (m0->m_len < sizeof(struct ip6_hdr)) {
 			DPFPRINTF(PF_DEBUG_URGENT,
 			    ("%s: m0->m_len < sizeof(struct ip6_hdr)\n",
 			    __func__));
+			SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
 			goto bad;
 		}
 		ip6 = mtod(m0, struct ip6_hdr *);
@@ -8044,8 +8090,11 @@ pf_route6(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 	if ((u_long)m0->m_pkthdr.len <= ifp->if_mtu) {
 		md = m0;
 		pf_dummynet_route(pd, s, r, ifp, sintosa(&dst), &md);
-		if (md != NULL)
-			nd6_output_ifp(ifp, ifp, md, &dst, NULL);
+		if (md != NULL) {
+			int ret __sdt_used;
+			ret = nd6_output_ifp(ifp, ifp, md, &dst, NULL);
+			SDT_PROBE2(pf, ip6, route_to, output, ifp, ret);
+		}
 	}
 	else {
 		in6_ifstat_inc(ifp, ifs6_in_toobig);
@@ -8056,8 +8105,11 @@ pf_route6(struct mbuf **m, struct pf_krule *r, struct ifnet *oifp,
 				    sizeof(struct ip6_hdr), s);
 
 			icmp6_error(m0, ICMP6_PACKET_TOO_BIG, 0, ifp->if_mtu);
-		} else
+			SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
+		} else {
+			SDT_PROBE1(pf, ip6, route_to, drop, __LINE__);
 			goto bad;
+		}
 	}
 
 done:
@@ -8331,66 +8383,68 @@ pf_dummynet_route(struct pf_pdesc *pd, struct pf_kstate *s,
     struct pf_krule *r, struct ifnet *ifp, struct sockaddr *sa,
     struct mbuf **m0)
 {
+	struct ip_fw_args dnflow;
+
 	NET_EPOCH_ASSERT();
 
-	if (pd->act.dnpipe || pd->act.dnrpipe) {
-		struct ip_fw_args dnflow;
-		if (ip_dn_io_ptr == NULL) {
-			m_freem(*m0);
-			*m0 = NULL;
-			return (ENOMEM);
+	if (pd->act.dnpipe == 0 && pd->act.dnrpipe == 0)
+		return (0);
+
+	if (ip_dn_io_ptr == NULL) {
+		m_freem(*m0);
+		*m0 = NULL;
+		return (ENOMEM);
+	}
+
+	if (pd->pf_mtag == NULL &&
+	    ((pd->pf_mtag = pf_get_mtag(*m0)) == NULL)) {
+		m_freem(*m0);
+		*m0 = NULL;
+		return (ENOMEM);
+	}
+
+	if (ifp != NULL) {
+		pd->pf_mtag->flags |= PF_MTAG_FLAG_ROUTE_TO;
+
+		pd->pf_mtag->if_index = ifp->if_index;
+		pd->pf_mtag->if_idxgen = ifp->if_idxgen;
+
+		MPASS(sa != NULL);
+
+		switch (pd->af) {
+		case AF_INET:
+			memcpy(&pd->pf_mtag->dst, sa,
+			    sizeof(struct sockaddr_in));
+			break;
+		case AF_INET6:
+			memcpy(&pd->pf_mtag->dst, sa,
+			    sizeof(struct sockaddr_in6));
+			break;
 		}
+	}
 
-		if (pd->pf_mtag == NULL &&
-		    ((pd->pf_mtag = pf_get_mtag(*m0)) == NULL)) {
-			m_freem(*m0);
-			*m0 = NULL;
-			return (ENOMEM);
-		}
-
-		if (ifp != NULL) {
-			pd->pf_mtag->flags |= PF_MTAG_FLAG_ROUTE_TO;
-
-			pd->pf_mtag->if_index = ifp->if_index;
-			pd->pf_mtag->if_idxgen = ifp->if_idxgen;
-
-			MPASS(sa != NULL);
-
-			switch (pd->af) {
-			case AF_INET:
-				memcpy(&pd->pf_mtag->dst, sa,
-				    sizeof(struct sockaddr_in));
-				break;
-			case AF_INET6:
-				memcpy(&pd->pf_mtag->dst, sa,
-				    sizeof(struct sockaddr_in6));
-				break;
-			}
-		}
-
-		if (s != NULL && s->nat_rule != NULL &&
-		    s->nat_rule->action == PF_RDR &&
-		    (
+	if (s != NULL && s->nat_rule != NULL &&
+	    s->nat_rule->action == PF_RDR &&
+	    (
 #ifdef INET
-		    (pd->af == AF_INET && IN_LOOPBACK(ntohl(pd->dst->v4.s_addr))) ||
+	    (pd->af == AF_INET && IN_LOOPBACK(ntohl(pd->dst->v4.s_addr))) ||
 #endif
-		    (pd->af == AF_INET6 && IN6_IS_ADDR_LOOPBACK(&pd->dst->v6)))) {
-			/*
-			 * If we're redirecting to loopback mark this packet
-			 * as being local. Otherwise it might get dropped
-			 * if dummynet re-injects.
-			 */
-			(*m0)->m_pkthdr.rcvif = V_loif;
-		}
+	    (pd->af == AF_INET6 && IN6_IS_ADDR_LOOPBACK(&pd->dst->v6)))) {
+		/*
+		 * If we're redirecting to loopback mark this packet
+		 * as being local. Otherwise it might get dropped
+		 * if dummynet re-injects.
+		 */
+		(*m0)->m_pkthdr.rcvif = V_loif;
+	}
 
-		if (pf_pdesc_to_dnflow(pd, r, s, &dnflow)) {
-			pd->pf_mtag->flags |= PF_MTAG_FLAG_DUMMYNET;
-			pd->pf_mtag->flags |= PF_MTAG_FLAG_DUMMYNETED;
-			ip_dn_io_ptr(m0, &dnflow);
-			if (*m0 != NULL) {
-				pd->pf_mtag->flags &= ~PF_MTAG_FLAG_ROUTE_TO;
-				pf_dummynet_flag_remove(*m0, pd->pf_mtag);
-			}
+	if (pf_pdesc_to_dnflow(pd, r, s, &dnflow)) {
+		pd->pf_mtag->flags |= PF_MTAG_FLAG_DUMMYNET;
+		pd->pf_mtag->flags |= PF_MTAG_FLAG_DUMMYNETED;
+		ip_dn_io_ptr(m0, &dnflow);
+		if (*m0 != NULL) {
+			pd->pf_mtag->flags &= ~PF_MTAG_FLAG_ROUTE_TO;
+			pf_dummynet_flag_remove(*m0, pd->pf_mtag);
 		}
 	}
 
@@ -8991,8 +9045,10 @@ pf_test(sa_family_t af, int dir, int pflags, struct ifnet *ifp, struct mbuf **m0
 
 	if (__predict_false(! M_WRITABLE(*m0))) {
 		*m0 = m_unshare(*m0, M_NOWAIT);
-		if (*m0 == NULL)
+		if (*m0 == NULL) {
+			PF_RULES_RUNLOCK();
 			return (PF_DROP);
+		}
 	}
 
 	pf_init_pdesc(&pd, *m0);

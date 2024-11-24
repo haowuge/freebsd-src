@@ -2763,6 +2763,10 @@ lkpi_ic_wme_update(struct ieee80211com *ic)
  * we do use a per-[l]vif event handler to be sure we exist as we
  * cannot assume that from every vap derives a vif and we have a hard
  * time checking based on net80211 information.
+ * Should this ever become a real problem we could add a callback function
+ * to wlan_iflladdr() to be set optionally but that would be for a
+ * single-consumer (or needs a list) -- was just too complicated for an
+ * otherwise perfect mechanism FreeBSD already provides.
  */
 static void
 lkpi_vif_iflladdr(void *arg, struct ifnet *ifp)
@@ -2771,14 +2775,15 @@ lkpi_vif_iflladdr(void *arg, struct ifnet *ifp)
 	struct ieee80211_vif *vif;
 
 	NET_EPOCH_ENTER(et);
-	/* NB: identify vap's by if_init; left as an extra check. */
-	if (ifp->if_init != ieee80211_init || (ifp->if_flags & IFF_UP) != 0) {
+	/* NB: identify vap's by if_transmit; left as an extra check. */
+	if (if_gettransmitfn(ifp) != ieee80211_vap_transmit ||
+	    (if_getflags(ifp) & IFF_UP) != 0) {
 		NET_EPOCH_EXIT(et);
 		return;
 	}
 
 	vif = arg;
-	IEEE80211_ADDR_COPY(vif->bss_conf.addr, IF_LLADDR(ifp));
+	IEEE80211_ADDR_COPY(vif->bss_conf.addr, if_getlladdr(ifp));
 	NET_EPOCH_EXIT(et);
 }
 

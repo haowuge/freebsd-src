@@ -879,6 +879,9 @@ amdiommu_find_unit(device_t dev, struct amdiommu_unit **unitp, uint16_t *ridp,
 	int error, flags;
 	bool res;
 
+	if (!amdiommu_enable)
+		return (ENXIO);
+
 	if (device_get_devclass(device_get_parent(dev)) !=
 	    devclass_find("pci"))
 		return (ENXIO);
@@ -943,6 +946,9 @@ amdiommu_find_unit_for_ioapic(int apic_id, struct amdiommu_unit **unitp,
 	device_t apic_dev;
 	bool res;
 
+	if (!amdiommu_enable)
+		return (ENXIO);
+
 	bzero(&ifu, sizeof(ifu));
 	ifu.type = IFU_DEV_IOAPIC;
 	ifu.devno = apic_id;
@@ -992,6 +998,9 @@ amdiommu_find_unit_for_hpet(device_t hpet, struct amdiommu_unit **unitp,
 	int hpet_no;
 	bool res;
 
+	if (!amdiommu_enable)
+		return (ENXIO);
+
 	hpet_no = hpet_get_uid(hpet);
 	bzero(&ifu, sizeof(ifu));
 	ifu.type = IFU_DEV_HPET;
@@ -1001,8 +1010,9 @@ amdiommu_find_unit_for_hpet(device_t hpet, struct amdiommu_unit **unitp,
 	res = amdiommu_ivrs_iterate_tbl(amdiommu_find_unit_scan_0x11,
 	    amdiommu_find_unit_scan_0x11, amdiommu_find_unit_scan_0x10, &ifu);
 	if (!res) {
-		printf("amdiommu cannot match hpet no %d in IVHD\n",
-		    hpet_no);
+		if (verbose)
+			printf("amdiommu cannot match hpet no %d in IVHD\n",
+			    hpet_no);
 		return (ENXIO);
 	}
 
@@ -1041,7 +1051,7 @@ amdiommu_find_method(device_t dev, bool verbose)
 
 	error = amdiommu_find_unit(dev, &unit, &rid, &dte, &edte, verbose);
 	if (error != 0) {
-		if (verbose)
+		if (verbose && amdiommu_enable)
 			device_printf(dev,
 			    "cannot find amdiommu unit, error %d\n",
 			    error);
@@ -1072,7 +1082,6 @@ static struct x86_iommu amd_x86_iommu = {
 	.domain_unload = amdiommu_domain_unload,
 	.get_ctx = amdiommu_get_ctx,
 	.free_ctx_locked = amdiommu_free_ctx_locked_method,
-	.free_ctx = amdiommu_free_ctx_method,
 	.alloc_msi_intr = amdiommu_alloc_msi_intr,
 	.map_msi_intr = amdiommu_map_msi_intr,
 	.unmap_msi_intr = amdiommu_unmap_msi_intr,
@@ -1100,14 +1109,12 @@ amdiommu_print_domain(struct amdiommu_domain *domain, bool show_mappings)
 
 	iodom = DOM2IODOM(domain);
 
-#if 0
 	db_printf(
-	    "  @%p dom %d mgaw %d agaw %d pglvl %d end %jx refs %d\n"
+	    "  @%p dom %d pglvl %d end %jx refs %d\n"
 	    "   ctx_cnt %d flags %x pgobj %p map_ents %u\n",
-	    domain, domain->domain, domain->mgaw, domain->agaw, domain->pglvl,
+	    domain, domain->domain, domain->pglvl,
 	    (uintmax_t)domain->iodom.end, domain->refs, domain->ctx_cnt,
 	    domain->iodom.flags, domain->pgtbl_obj, domain->iodom.entries_cnt);
-#endif
 
 	iommu_db_domain_print_contexts(iodom);
 

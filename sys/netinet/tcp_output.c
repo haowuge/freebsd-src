@@ -292,7 +292,8 @@ again:
 	len = 0;
 	p = NULL;
 	if ((tp->t_flags & TF_SACK_PERMIT) &&
-	    (IN_FASTRECOVERY(tp->t_flags) || SEQ_LT(tp->snd_nxt, tp->snd_max)) &&
+	    (IN_FASTRECOVERY(tp->t_flags) ||
+	     (SEQ_LT(tp->snd_nxt, tp->snd_max) && (tp->t_dupacks >= tcprexmtthresh))) &&
 	    (p = tcp_sack_output(tp, &sack_bytes_rxmt))) {
 		int32_t cwin;
 
@@ -359,7 +360,7 @@ after_sack_rexmit:
 	if (tp->t_flags & TF_NEEDSYN)
 		flags |= TH_SYN;
 
-	SOCKBUF_LOCK(&so->so_snd);
+	SOCK_SENDBUF_LOCK(so);
 	/*
 	 * If in persist timeout with window of 0, send 1 byte.
 	 * Otherwise, if window is small but nonzero
@@ -513,8 +514,8 @@ after_sack_rexmit:
 	 * hardware).
 	 *
 	 * TSO may only be used if we are in a pure bulk sending state.  The
-	 * presence of TCP-MD5, SACK retransmits, SACK advertizements and
-	 * IP options prevent using TSO.  With TSO the TCP header is the same
+	 * presence of TCP-MD5, IP options (IPsec), and possibly SACK
+	 * retransmits prevent using TSO.  With TSO the TCP header is the same
 	 * (except for the sequence number) for all generated packets.  This
 	 * makes it impossible to transmit any options which vary per generated
 	 * segment or packet.
@@ -556,9 +557,9 @@ after_sack_rexmit:
 	if ((tp->t_flags & TF_TSO) && V_tcp_do_tso && len > tp->t_maxseg &&
 	    (tp->t_port == 0) &&
 	    ((tp->t_flags & TF_SIGNATURE) == 0) &&
-	    tp->rcv_numsacks == 0 && ((sack_rxmit == 0) || V_tcp_sack_tso) &&
+	    ((sack_rxmit == 0) || V_tcp_sack_tso) &&
 	    (ipoptlen == 0 || (ipoptlen == ipsec_optlen &&
-	    (tp->t_flags2 & TF2_IPSEC_TSO) != 0)) &&
+	     (tp->t_flags2 & TF2_IPSEC_TSO) != 0)) &&
 	    !(flags & TH_SYN))
 		tso = 1;
 
@@ -752,11 +753,11 @@ dontupdate:
 	 * No reason to send a segment, just return.
 	 */
 just_return:
-	SOCKBUF_UNLOCK(&so->so_snd);
+	SOCK_SENDBUF_UNLOCK(so);
 	return (0);
 
 send:
-	SOCKBUF_LOCK_ASSERT(&so->so_snd);
+	SOCK_SENDBUF_LOCK_ASSERT(so);
 	if (len > 0) {
 		if (len >= tp->t_maxseg)
 			tp->t_flags2 |= TF2_PLPMTU_MAXSEGSNT;
@@ -886,7 +887,7 @@ send:
 	if (tp->t_port) {
 		if (V_tcp_udp_tunneling_port == 0) {
 			/* The port was removed?? */
-			SOCKBUF_UNLOCK(&so->so_snd);
+			SOCK_SENDBUF_UNLOCK(so);
 			return (EHOSTUNREACH);
 		}
 		hdrlen += sizeof(struct udphdr);
@@ -978,7 +979,7 @@ send:
 				 * byte of the payload can be put into the
 				 * TCP segment.
 				 */
-				SOCKBUF_UNLOCK(&so->so_snd);
+				SOCK_SENDBUF_UNLOCK(so);
 				error = EMSGSIZE;
 				sack_rxmit = 0;
 				goto out;
@@ -1060,7 +1061,7 @@ send:
 			m = m_gethdr(M_NOWAIT, MT_DATA);
 
 		if (m == NULL) {
-			SOCKBUF_UNLOCK(&so->so_snd);
+			SOCK_SENDBUF_UNLOCK(so);
 			error = ENOBUFS;
 			sack_rxmit = 0;
 			goto out;
@@ -1103,7 +1104,7 @@ send:
 				tso = 0;
 			}
 			if (m->m_next == NULL) {
-				SOCKBUF_UNLOCK(&so->so_snd);
+				SOCK_SENDBUF_UNLOCK(so);
 				(void) m_free(m);
 				error = ENOBUFS;
 				sack_rxmit = 0;
@@ -1120,9 +1121,9 @@ send:
 		if (((uint32_t)off + (uint32_t)len == sbused(&so->so_snd)) &&
 		    !(flags & TH_SYN))
 			flags |= TH_PUSH;
-		SOCKBUF_UNLOCK(&so->so_snd);
+		SOCK_SENDBUF_UNLOCK(so);
 	} else {
-		SOCKBUF_UNLOCK(&so->so_snd);
+		SOCK_SENDBUF_UNLOCK(so);
 		if (tp->t_flags & TF_ACKNOW)
 			TCPSTAT_INC(tcps_sndacks);
 		else if (flags & (TH_SYN|TH_FIN|TH_RST))
@@ -1147,7 +1148,7 @@ send:
 		m->m_data += max_linkhdr;
 		m->m_len = hdrlen;
 	}
-	SOCKBUF_UNLOCK_ASSERT(&so->so_snd);
+	SOCK_SENDBUF_UNLOCK_ASSERT(so);
 	m->m_pkthdr.rcvif = (struct ifnet *)0;
 #ifdef MAC
 	mac_inpcb_create_mbuf(inp, m);
@@ -1687,7 +1688,7 @@ timer:
 			if (IN_RECOVERY(tp->t_flags))
 				tp->sackhint.prr_out -= len;
 		}
-		SOCKBUF_UNLOCK_ASSERT(&so->so_snd);	/* Check gotos. */
+		SOCK_SENDBUF_UNLOCK_ASSERT(so);	/* Check gotos. */
 		switch (error) {
 		case EACCES:
 		case EPERM:
@@ -1695,7 +1696,7 @@ timer:
 			return (error);
 		case ENOBUFS:
 			TCP_XMIT_TIMER_ASSERT(tp, len, flags);
-			tp->snd_cwnd = tp->t_maxseg;
+			tp->snd_cwnd = tcp_maxseg(tp);
 			return (0);
 		case EMSGSIZE:
 			/*

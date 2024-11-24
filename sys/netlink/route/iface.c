@@ -322,11 +322,13 @@ dump_iface(struct nl_writer *nw, if_t ifp, const struct nlmsghdr *hdr,
 */
 	if (if_getaddrlen(ifp) != 0) {
 		struct ifaddr *ifa;
+		struct ifa_iter it;
 
 		NET_EPOCH_ENTER(et);
-		ifa = CK_STAILQ_FIRST(&ifp->if_addrhead);
+		ifa = ifa_iter_start(ifp, &it);
 		if (ifa != NULL)
 			dump_sa(nw, IFLA_ADDRESS, ifa->ifa_addr);
+		ifa_iter_finish(&it);
 		NET_EPOCH_EXIT(et);
 	}
 
@@ -1427,7 +1429,7 @@ rtnl_handle_ifdetach(void *arg, if_t ifp)
 }
 
 static void
-rtnl_handle_iflink(void *arg, if_t ifp)
+rtnl_handle_iflink(void *arg, if_t ifp, int link_state __unused)
 {
 	NL_LOG(LOG_DEBUG2, "ifnet %s", if_name(ifp));
 	rtnl_handle_ifevent(ifp, NL_RTM_NEWLINK, 0);

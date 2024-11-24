@@ -368,11 +368,11 @@ cc_conn_init(struct tcpcb *tp)
 	tcp_hc_get(&inp->inp_inc, &metrics);
 	maxseg = tcp_maxseg(tp);
 
-	if (tp->t_srtt == 0 && (rtt = metrics.rmx_rtt)) {
+	if (tp->t_srtt == 0 && (rtt = metrics.hc_rtt)) {
 		tp->t_srtt = rtt;
 		TCPSTAT_INC(tcps_usedrtt);
-		if (metrics.rmx_rttvar) {
-			tp->t_rttvar = metrics.rmx_rttvar;
+		if (metrics.hc_rttvar) {
+			tp->t_rttvar = metrics.hc_rttvar;
 			TCPSTAT_INC(tcps_usedrttvar);
 		} else {
 			/* default variation is +- 1 rtt */
@@ -383,14 +383,14 @@ cc_conn_init(struct tcpcb *tp)
 		    ((tp->t_srtt >> 2) + tp->t_rttvar) >> 1,
 		    tp->t_rttmin, TCPTV_REXMTMAX);
 	}
-	if (metrics.rmx_ssthresh) {
+	if (metrics.hc_ssthresh) {
 		/*
 		 * There's some sort of gateway or interface
 		 * buffer limit on the path.  Use this to set
 		 * the slow start threshold, but set the
 		 * threshold to no less than 2*mss.
 		 */
-		tp->snd_ssthresh = max(2 * maxseg, metrics.rmx_ssthresh);
+		tp->snd_ssthresh = max(2 * maxseg, metrics.hc_ssthresh);
 		TCPSTAT_INC(tcps_usedssthresh);
 	}
 
@@ -1512,7 +1512,7 @@ tcp_handle_wakeup(struct tcpcb *tp)
 		struct socket *so = tptosocket(tp);
 
 		tp->t_flags &= ~TF_WAKESOR;
-		SOCKBUF_LOCK_ASSERT(&so->so_rcv);
+		SOCK_RECVBUF_LOCK_ASSERT(so);
 		sorwakeup_locked(so);
 	}
 }
@@ -1939,7 +1939,7 @@ tcp_do_segment(struct tcpcb *tp, struct mbuf *m, struct tcphdr *th,
 			newsize = tcp_autorcvbuf(m, th, so, tp, tlen);
 
 			/* Add data to socket buffer. */
-			SOCKBUF_LOCK(&so->so_rcv);
+			SOCK_RECVBUF_LOCK(so);
 			if (so->so_rcv.sb_state & SBS_CANTRCVMORE) {
 				m_freem(m);
 			} else {
@@ -2813,15 +2813,15 @@ enter_recovery:
 							tcp_sack_adjust(tp);
 					tp->snd_cwnd +=
 					    (tp->t_dupacks - tp->snd_limited) *
-					    maxseg;
+					    maxseg - tcp_sack_adjust(tp);
 					/*
 					 * Only call tcp_output when there
 					 * is new data available to be sent
 					 * or we need to send an ACK.
 					 */
-					SOCKBUF_LOCK(&so->so_snd);
+					SOCK_SENDBUF_LOCK(so);
 					avail = sbavail(&so->so_snd);
-					SOCKBUF_UNLOCK(&so->so_snd);
+					SOCK_SENDBUF_UNLOCK(so);
 					if (tp->t_flags & TF_ACKNOW ||
 					    (avail >=
 					     SEQ_SUB(tp->snd_nxt, tp->snd_una))) {
@@ -2998,7 +2998,7 @@ process_ACK:
 			tcp_xmit_timer(tp, ticks - tp->t_rtttime);
 		}
 
-		SOCKBUF_LOCK(&so->so_snd);
+		SOCK_SENDBUF_LOCK(so);
 		/*
 		 * Clear t_acktime if remote side has ACKd all data in the
 		 * socket buffer and FIN (if applicable).
@@ -3029,7 +3029,7 @@ process_ACK:
 		 *    skip rest of ACK processing.
 		 */
 		if (acked == 0) {
-			SOCKBUF_UNLOCK(&so->so_snd);
+			SOCK_SENDBUF_UNLOCK(so);
 			goto step6;
 		}
 
@@ -3165,11 +3165,11 @@ step6:
 		 * soreceive.  It's hard to imagine someone
 		 * actually wanting to send this much urgent data.
 		 */
-		SOCKBUF_LOCK(&so->so_rcv);
+		SOCK_RECVBUF_LOCK(so);
 		if (th->th_urp + sbavail(&so->so_rcv) > sb_max) {
 			th->th_urp = 0;			/* XXX */
 			thflags &= ~TH_URG;		/* XXX */
-			SOCKBUF_UNLOCK(&so->so_rcv);	/* XXX */
+			SOCK_RECVBUF_UNLOCK(so);	/* XXX */
 			goto dodata;			/* XXX */
 		}
 		/*
@@ -3195,7 +3195,7 @@ step6:
 			sohasoutofband(so);
 			tp->t_oobflags &= ~(TCPOOB_HAVEDATA | TCPOOB_HADDATA);
 		}
-		SOCKBUF_UNLOCK(&so->so_rcv);
+		SOCK_RECVBUF_UNLOCK(so);
 		/*
 		 * Remove out of band data so doesn't get presented to user.
 		 * This can happen independent of advancing the URG pointer,
@@ -3268,7 +3268,7 @@ dodata:							/* XXX */
 			thflags = tcp_get_flags(th) & TH_FIN;
 			TCPSTAT_INC(tcps_rcvpack);
 			TCPSTAT_ADD(tcps_rcvbyte, tlen);
-			SOCKBUF_LOCK(&so->so_rcv);
+			SOCK_RECVBUF_LOCK(so);
 			if (so->so_rcv.sb_state & SBS_CANTRCVMORE)
 				m_freem(m);
 			else
@@ -3877,19 +3877,16 @@ tcp_mss_update(struct tcpcb *tp, int offer, int mtuoffer,
 			offer = max(offer, V_tcp_minmss);
 	}
 
-	/*
-	 * rmx information is now retrieved from tcp_hostcache.
-	 */
-	tcp_hc_get(&inp->inp_inc, &metrics);
-	if (metricptr != NULL)
-		bcopy(&metrics, metricptr, sizeof(struct hc_metrics_lite));
+	if (metricptr == NULL)
+		metricptr = &metrics;
+	tcp_hc_get(&inp->inp_inc, metricptr);
 
 	/*
 	 * If there's a discovered mtu in tcp hostcache, use it.
 	 * Else, use the link mtu.
 	 */
-	if (metrics.rmx_mtu)
-		mss = min(metrics.rmx_mtu, maxmtu) - min_protoh;
+	if (metricptr->hc_mtu)
+		mss = min(metricptr->hc_mtu, maxmtu) - min_protoh;
 	else {
 #ifdef INET6
 		if (isipv6) {
@@ -3980,9 +3977,9 @@ tcp_mss(struct tcpcb *tp, int offer)
 	 * if the mss is larger than the socket buffer, decrease the mss.
 	 */
 	so = inp->inp_socket;
-	SOCKBUF_LOCK(&so->so_snd);
-	if ((so->so_snd.sb_hiwat == V_tcp_sendspace) && metrics.rmx_sendpipe)
-		bufsize = metrics.rmx_sendpipe;
+	SOCK_SENDBUF_LOCK(so);
+	if ((so->so_snd.sb_hiwat == V_tcp_sendspace) && metrics.hc_sendpipe)
+		bufsize = metrics.hc_sendpipe;
 	else
 		bufsize = so->so_snd.sb_hiwat;
 	if (bufsize < mss)
@@ -3994,7 +3991,7 @@ tcp_mss(struct tcpcb *tp, int offer)
 		if (bufsize > so->so_snd.sb_hiwat)
 			(void)sbreserve_locked(so, SO_SND, bufsize, NULL);
 	}
-	SOCKBUF_UNLOCK(&so->so_snd);
+	SOCK_SENDBUF_UNLOCK(so);
 	/*
 	 * Sanity check: make sure that maxseg will be large
 	 * enough to allow some data on segments even if the
@@ -4015,9 +4012,9 @@ tcp_mss(struct tcpcb *tp, int offer)
 		tp->t_flags2 &= ~TF2_PROC_SACK_PROHIBIT;
 	}
 
-	SOCKBUF_LOCK(&so->so_rcv);
-	if ((so->so_rcv.sb_hiwat == V_tcp_recvspace) && metrics.rmx_recvpipe)
-		bufsize = metrics.rmx_recvpipe;
+	SOCK_RECVBUF_LOCK(so);
+	if ((so->so_rcv.sb_hiwat == V_tcp_recvspace) && metrics.hc_recvpipe)
+		bufsize = metrics.hc_recvpipe;
 	else
 		bufsize = so->so_rcv.sb_hiwat;
 	if (bufsize > mss) {
@@ -4027,7 +4024,7 @@ tcp_mss(struct tcpcb *tp, int offer)
 		if (bufsize > so->so_rcv.sb_hiwat)
 			(void)sbreserve_locked(so, SO_RCV, bufsize, NULL);
 	}
-	SOCKBUF_UNLOCK(&so->so_rcv);
+	SOCK_RECVBUF_UNLOCK(so);
 
 	/* Check the interface for TSO capabilities. */
 	if (cap.ifcap & CSUM_TSO) {
