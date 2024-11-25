@@ -91,6 +91,8 @@ typedef struct _PE_RichHdr {
 #define	IMAGE_FILE_MACHINE_RISCV32	0x5032	/* RISC-V 32-bit */
 #define	IMAGE_FILE_MACHINE_RISCV64	0x5064	/* RISC-V 64-bit */
 #define	IMAGE_FILE_MACHINE_RISCV128	0x5128	/* RISC-V 128-bit */
+#define	IMAGE_FILE_MACHINE_LOONGARCH32	0x6232	/* LoongArch 32-bit */
+#define	IMAGE_FILE_MACHINE_LOONGARCH64	0x6264	/* LoongArch 64-bit */
 #define	IMAGE_FILE_MACHINE_SH3		0x1a2	/* Hitachi SH3 */
 #define	IMAGE_FILE_MACHINE_SH3DSP	0x1a3	/* Hitachi SH3 DSP */
 #define	IMAGE_FILE_MACHINE_SH4		0x1a6	/* Hitachi SH4 */

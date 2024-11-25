@@ -456,6 +456,12 @@ static struct eflags_desc riscv_eflags_desc[] = {
 	{0, NULL}
 };
 
+static struct eflags_desc loongarch_eflags_desc[] = {
+	{EF_LOONGARCH_OBJABI_V0, "OBJ-v0"},
+	{EF_LOONGARCH_OBJABI_V1, "OBJ-v1"},
+	{0, NULL}
+};
+
 static struct eflags_desc sparc_eflags_desc[] = {
 	{EF_SPARC_32PLUS, "v8+"},
 	{EF_SPARC_SUN_US1, "ultrasparcI"},
@@ -593,6 +599,7 @@ elf_machine(unsigned int mach)
 	case EM_UNICORE: return "Microprocessor series from PKU-Unity Ltd";
 	case EM_AARCH64: return "AArch64";
 	case EM_RISCV: return "RISC-V";
+	case EM_LOONGARCH: return "LoongArch";
 	default:
 		snprintf(s_mach, sizeof(s_mach), "<unknown: %#x>", mach);
 		return (s_mach);
@@ -2193,6 +2200,74 @@ dwarf_reg(unsigned int mach, unsigned int reg)
 		case 63: return "ft11";
 		default: return (NULL);
 		}
+	case EM_LOONGARCH:
+		switch (reg) {
+		case 0: return "zero";
+		case 1: return "ra";
+		case 2: return "tp";
+		case 3: return "sp";
+		case 4: return "a0";
+		case 5: return "a1";
+		case 6: return "a2";
+		case 7: return "a3";
+		case 8: return "a4";
+		case 9: return "a5";
+		case 10: return "a6";
+		case 11: return "a7";
+		case 12: return "t0";
+		case 13: return "t1";
+		case 14: return "t2";
+		case 15: return "t3";
+		case 16: return "t4";
+		case 17: return "t5";
+		case 18: return "t6";
+		case 19: return "t7";
+		case 20: return "t8";
+		case 21: return "";
+		case 22: return "fp";
+		case 23: return "s0";
+		case 24: return "s1";
+		case 25: return "s2";
+		case 26: return "s3";
+		case 27: return "s4";
+		case 28: return "s5";
+		case 29: return "s6";
+		case 30: return "s7";
+		case 31: return "s8";
+		case 32: return "fa0";
+		case 33: return "fa1";
+		case 34: return "fa2";
+		case 35: return "fa3";
+		case 36: return "fa4";
+		case 37: return "fa5";
+		case 38: return "fa6";
+		case 39: return "fa7";
+		case 40: return "ft0";
+		case 41: return "ft1";
+		case 42: return "ft2";
+		case 43: return "ft3";
+		case 44: return "ft4";
+		case 45: return "ft5";
+		case 46: return "ft6";
+		case 47: return "ft7";
+		case 48: return "ft8";
+		case 49: return "ft9";
+		case 50: return "ft10";
+		case 51: return "ft11";
+		case 52: return "ft12";
+		case 53: return "ft13";
+		case 54: return "ft14";
+		case 55: return "ft15";
+		case 56: return "fs0";
+		case 57: return "fs1";
+		case 58: return "fs2";
+		case 59: return "fs3";
+		case 60: return "fs4";
+		case 61: return "fs5";
+		case 62: return "fs6";
+		case 63: return "fs7";
+		default: return (NULL);
+		}
 	case EM_X86_64:
 		switch (reg) {
 		case 0: return "rax";
@@ -2437,6 +2512,23 @@ dump_eflags(struct readelf *re, uint64_t e_flags)
 			break;
 		}
 		edesc = riscv_eflags_desc;
+		break;
+	case EM_LOONGARCH:
+		switch (e_flags & EF_LOONGARCH_ABI_MODIFIER_MASK) {
+		case EF_LOONGARCH_ABI_SOFT_FLOAT:
+			printf(", SOFT-FLOAT");
+			break;
+		case EF_LOONGARCH_ABI_SINGLE_FLOAT:
+			printf(", SINGLE-FLOAT");
+			break;
+		case EF_LOONGARCH_ABI_DOUBLE_FLOAT:
+			printf(", DOUBLE-FLOAT");
+			break;
+		case EF_LOONGARCH_ABI_MODIFIER_MASK:
+			printf(", MODIFIER-MASK");
+			break;
+		}
+		edesc = loongarch_eflags_desc;
 		break;
 	case EM_SPARC:
 	case EM_SPARC32PLUS:
