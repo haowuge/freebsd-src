@@ -318,8 +318,8 @@ atomic_testandclear_32(volatile uint32_t *p, u_int val)
 	uint32_t mask, old;
 
 	mask = 1u << (val & 31);
-	__asm __volatile("amoand.w %0, %2, %1"
-			: "=&r" (old), "+A" (*p)
+	__asm __volatile("amand.w %0, %2, %1"
+			: "=&r" (old), "+ZB" (*p)
 			: "r" (~mask)
 			: "memory");
 
@@ -332,19 +332,13 @@ atomic_testandset_32(volatile uint32_t *p, u_int val)
 	uint32_t mask, old;
 
 	mask = 1u << (val & 31);
-	__asm __volatile("amoor.w %0, %2, %1"
-			: "=&r" (old), "+A" (*p)
+	__asm __volatile("amor.w %0, %2, %1"
+			: "=&r" (old), "+ZB" (*p)
 			: "r" (mask)
 			: "memory");
 
 	return ((old & mask) != 0);
 }
-
-
-
-
-
-
 
 #define	atomic_add_int		atomic_add_32
 #define	atomic_clear_int	atomic_clear_32
@@ -519,16 +513,14 @@ atomic_readandclear_64(volatile uint64_t *p)
 	return (ret);
 }
 
-
-// AAAAAAAAAAAAA
 static __inline int
 atomic_testandclear_64(volatile uint64_t *p, u_int val)
 {
 	uint64_t mask, old;
 
 	mask = 1ul << (val & 63);
-	__asm __volatile("amoand.d %0, %2, %1"
-			: "=&r" (old), "+A" (*p)
+	__asm __volatile("amand.d %0, %2, %1"
+			: "=&r" (old), "+ZB" (*p)
 			: "r" (~mask)
 			: "memory");
 
@@ -541,8 +533,8 @@ atomic_testandset_64(volatile uint64_t *p, u_int val)
 	uint64_t mask, old;
 
 	mask = 1ul << (val & 63);
-	__asm __volatile("amoor.d %0, %2, %1"
-			: "=&r" (old), "+A" (*p)
+	__asm __volatile("amor.d %0, %2, %1"
+			: "=&r" (old), "+ZB" (*p)
 			: "r" (mask)
 			: "memory");
 
@@ -555,22 +547,13 @@ atomic_testandset_acq_64(volatile uint64_t *p, u_int val)
 	uint64_t mask, old;
 
 	mask = 1ul << (val & 63);
-	__asm __volatile("amoor.d.aq %0, %2, %1"
-			: "=&r" (old), "+A" (*p)
+	__asm __volatile("amor.d.aq %0, %2, %1"
+			: "=&r" (old), "+ZB" (*p)
 			: "r" (mask)
 			: "memory");
 
 	return ((old & mask) != 0);
 }
-
-
-
-
-
-
-
-
-
 
 static __inline uint32_t
 atomic_swap_32(volatile uint32_t *p, uint32_t val)
