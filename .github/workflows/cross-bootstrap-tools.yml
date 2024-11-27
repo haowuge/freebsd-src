@@ -2,9 +2,9 @@ name: Cross-build Kernel
 
 on:
   push:
-    branches: [ 'GHW_LoongArch_LLVM19_Main', 'GHW_LoongArch-releng/14.1' ]
+    branches: [ 'GHW_LoongArch_LLVM19_Main2', 'GHW_LoongArch-releng/14.1' ]
   pull_request:
-    branches: [ 'GHW_LoongArch_LLVM19_Main' ]
+    branches: [ 'GHW_LoongArch_LLVM19_Main2' ]
   workflow_dispatch:
 
 permissions:
