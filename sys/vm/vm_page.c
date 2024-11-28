@@ -626,7 +626,7 @@ vm_page_startup(vm_offset_t vaddr)
 	(void)last_pa;
 #endif
 #if defined(__aarch64__) || defined(__amd64__) || \
-    defined(__riscv) || defined(__powerpc64__)
+    defined(__riscv) || defined(__powerpc64__) || defined(__loongarch64)
 	/*
 	 * Include the UMA bootstrap pages, witness pages and vm_page_dump
 	 * in a crash dump.  When pmap_map() uses the direct map, they are
@@ -731,7 +731,7 @@ vm_page_startup(vm_offset_t vaddr)
 	new_end = vm_reserv_startup(&vaddr, new_end);
 #endif
 #if defined(__aarch64__) || defined(__amd64__) || \
-    defined(__riscv) || defined(__powerpc64__)
+    defined(__riscv) || defined(__powerpc64__) || defined(__loongarch64)
 	/*
 	 * Include vm_page_array and vm_reserv_array in a crash dump.
 	 */
