@@ -38,8 +38,7 @@
 static __inline void
 breakpoint(void)
 {
-
-	__asm("ebreak");
+	__asm __volatile__("break 0");
 }
 
 #ifdef _KERNEL
@@ -49,63 +48,54 @@ breakpoint(void)
 static __inline register_t
 intr_disable(void)
 {
-	uint64_t ret;
+  uint32_t flags = 0;
+  __asm__ __volatile__(
+    "csrxchg %[val], %[mask], %[reg]\n\t"
+    : [val] "+r" (flags)
+    : [mask] "r" (CSR_CRMD_IE), [reg] "i" (LOONGARCH_CSR_CRMD)
+    : "memory");
 
-	__asm __volatile(
-		"csrrci %0, sstatus, %1"
-		: "=&r" (ret) : "i" (SSTATUS_SIE)
-	);
-
-	return (ret & (SSTATUS_SIE));
+	return (flags & (CSR_CRMD_IE));
 }
 
 static __inline void
 intr_restore(register_t s)
 {
+  uint32_t flags = s;
 
-	__asm __volatile(
-		"csrs sstatus, %0"
-		:: "r" (s)
-	);
+  __asm__ __volatile__(
+    "csrxchg %[val], %[mask], %[reg]\n\t"
+    : [val] "+r" (flags)
+    : [mask] "r" (CSR_CRMD_IE), [reg] "i" (LOONGARCH_CSR_CRMD)
+    : "memory");
 }
 
 static __inline void
 intr_enable(void)
 {
-
-	__asm __volatile(
-		"csrsi sstatus, %0"
-		:: "i" (SSTATUS_SIE)
-	);
-}
-
-/* NB: fence() is defined as a macro in <machine/atomic.h>. */
-
-static __inline void
-fence_i(void)
-{
-
-	__asm __volatile("fence.i" ::: "memory");
+  intr_restore(1);
 }
 
 static __inline void
-sfence_vma(void)
+flush_icache(void)
 {
-
-	__asm __volatile("sfence.vma" ::: "memory");
+	__asm __volatile("ibar 0" ::);
 }
 
-static __inline void
-sfence_vma_page(uintptr_t addr)
+/* timer */
+static inline unsigned long rdtime(void)
 {
+  unsigned long val = 0;
 
-	__asm __volatile("sfence.vma %0" :: "r" (addr) : "memory");
+  __asm __volatile(
+    "rdtime.d %0, $zero\n\t"
+    : "=r"(val)
+    :
+    );
+  return val;
 }
 
-#define	rdcycle()			csr_read64(cycle)
-#define	rdtime()			csr_read64(time)
-#define	rdinstret()			csr_read64(instret)
-#define	rdhpmcounter(n)			csr_read64(hpmcounter##n)
+#define	rdcycle()			rdtime()
 
 extern int64_t dcache_line_size;
 extern int64_t icache_line_size;
@@ -118,9 +108,9 @@ extern int64_t icache_line_size;
 #define	cpu_icache_sync_range(a, s)
 #define	cpu_icache_sync_range_checked(a, s)
 
-#define	cpufunc_nullop()		riscv_nullop()
+#define	cpufunc_nullop()		loongarch_nullop()
 
-void riscv_nullop(void);
+void loongarch_nullop(void);
 
 #endif	/* _KERNEL */
 #endif	/* _MACHINE_CPUFUNC_H_ */

@@ -37,10 +37,55 @@
 
 #include <sys/atomic_common.h>
 
-#define	fence()	__asm __volatile("fence" ::: "memory");
-#define	mb()	fence()
-#define	rmb()	fence()
-#define	wmb()	fence()
+/* from Linux source 6.7.0 */
+
+/*
+ * Hint encoding:
+ *
+ * Bit4: ordering or completion (0: completion, 1: ordering)
+ * Bit3: barrier for previous read (0: true, 1: false)
+ * Bit2: barrier for previous write (0: true, 1: false)
+ * Bit1: barrier for succeeding read (0: true, 1: false)
+ * Bit0: barrier for succeeding write (0: true, 1: false)
+ *
+ * Hint 0x700: barrier for "read after read" from the same address
+ */
+
+#define DBAR(hint) __asm__ __volatile__("dbar %0 " : : "I"(hint) : "memory")
+
+#define crwrw   0b00000
+#define cr_r_   0b00101
+#define c_w_w   0b01010
+
+#define orwrw   0b10000
+#define or_r_   0b10101
+#define o_w_w   0b11010
+
+#define orw_w   0b10010
+#define or_rw   0b10100
+
+#define c_sync()  DBAR(crwrw)
+#define c_rsync() DBAR(cr_r_)
+#define c_wsync() DBAR(c_w_w)
+
+#define o_sync()  DBAR(orwrw)
+#define o_rsync() DBAR(or_r_)
+#define o_wsync() DBAR(o_w_w)
+
+#define ldacq_mb()  DBAR(or_rw)
+#define strel_mb()  DBAR(orw_w)
+
+#define mb()    c_sync()
+#define rmb()   c_rsync()
+#define wmb()   c_wsync()
+#define iob()   c_sync()
+#define wbflush() c_sync()
+
+#define __smp_mb()  o_sync()
+#define __smp_rmb() o_rsync()
+#define __smp_wmb() o_wsync()
+
+#define fence() mb()
 
 static __inline int atomic_cmpset_8(__volatile uint8_t *, uint8_t, uint8_t);
 static __inline int atomic_fcmpset_8(__volatile uint8_t *, uint8_t *, uint8_t);
@@ -53,13 +98,13 @@ static __inline  void							\
 atomic_##NAME##_acq_##WIDTH(__volatile uint##WIDTH##_t *p, uint##WIDTH##_t v)\
 {									\
 	atomic_##NAME##_##WIDTH(p, v);					\
-	fence(); 							\
+	ldacq_mb(); 							\
 }									\
 									\
 static __inline  void							\
 atomic_##NAME##_rel_##WIDTH(__volatile uint##WIDTH##_t *p, uint##WIDTH##_t v)\
 {									\
-	fence();							\
+	strel_mb();							\
 	atomic_##NAME##_##WIDTH(p, v);					\
 }
 
@@ -71,7 +116,7 @@ atomic_cmpset_acq_##WIDTH(__volatile uint##WIDTH##_t *p,		\
 	int retval;							\
 									\
 	retval = atomic_cmpset_##WIDTH(p, cmpval, newval);		\
-	fence();							\
+	ldacq_mb();							\
 	return (retval);						\
 }									\
 									\
@@ -79,7 +124,7 @@ static __inline  int							\
 atomic_cmpset_rel_##WIDTH(__volatile uint##WIDTH##_t *p,		\
     uint##WIDTH##_t cmpval, uint##WIDTH##_t newval)			\
 {									\
-	fence();							\
+	strel_mb();							\
 	return (atomic_cmpset_##WIDTH(p, cmpval, newval));		\
 }
 
@@ -91,7 +136,7 @@ atomic_fcmpset_acq_##WIDTH(__volatile uint##WIDTH##_t *p,		\
 	int retval;							\
 									\
 	retval = atomic_fcmpset_##WIDTH(p, cmpval, newval);		\
-	fence();							\
+	ldacq_mb();							\
 	return (retval);						\
 }									\
 									\
@@ -99,7 +144,7 @@ static __inline  int							\
 atomic_fcmpset_rel_##WIDTH(__volatile uint##WIDTH##_t *p,		\
     uint##WIDTH##_t *cmpval, uint##WIDTH##_t newval)			\
 {									\
-	fence();							\
+	strel_mb();							\
 	return (atomic_fcmpset_##WIDTH(p, cmpval, newval));		\
 }
 
@@ -126,8 +171,8 @@ static __inline void
 atomic_add_32(volatile uint32_t *p, uint32_t val)
 {
 
-	__asm __volatile("amoadd.w zero, %1, %0"
-			: "+A" (*p)
+	__asm __volatile("amadd.w $zero, %1, %0"
+			: "+ZB" (*p)
 			: "r" (val)
 			: "memory");
 }
@@ -136,8 +181,8 @@ static __inline void
 atomic_subtract_32(volatile uint32_t *p, uint32_t val)
 {
 
-	__asm __volatile("amoadd.w zero, %1, %0"
-			: "+A" (*p)
+	__asm __volatile("amadd.w $zero, %1, %0"
+			: "+ZB" (*p)
 			: "r" (-val)
 			: "memory");
 }
@@ -146,8 +191,8 @@ static __inline void
 atomic_set_32(volatile uint32_t *p, uint32_t val)
 {
 
-	__asm __volatile("amoor.w zero, %1, %0"
-			: "+A" (*p)
+	__asm __volatile("amor.w $zero, %1, %0"
+			: "+ZB" (*p)
 			: "r" (val)
 			: "memory");
 }
@@ -156,8 +201,8 @@ static __inline void
 atomic_clear_32(volatile uint32_t *p, uint32_t val)
 {
 
-	__asm __volatile("amoand.w zero, %1, %0"
-			: "+A" (*p)
+	__asm __volatile("amand.w $zero, %1, %0"
+			: "+ZB" (*p)
 			: "r" (~val)
 			: "memory");
 }
@@ -172,17 +217,18 @@ atomic_cmpset_32(volatile uint32_t *p, uint32_t cmpval, uint32_t newval)
 
 	__asm __volatile(
 		"0:"
-			"li   %1, 1\n" /* Preset to fail */
-			"lr.w %0, %2\n"
-			"bne  %0, %z3, 1f\n"
-			"sc.w %1, %z4, %2\n"
-			"bnez %1, 0b\n"
+			"li.w   %1, 0\n" /* Preset to fail */
+			"ll.w %0, %2\n"  /* tmp = *p */
+			"bne  %0, %z3, 1f\n" /* cmpval == *p ? */
+      "move %1, %z4\n"
+			"sc.w %1, %2\n" /* *p = newval */
+			"beqz %1, 0b\n" /* loop */
 		"1:"
-			: "=&r" (tmp), "=&r" (res), "+A" (*p)
+			: "=&r" (tmp), "=&r" (res), "+ZB" (*p)
 			: "rJ" ((long)(int32_t)cmpval), "rJ" (newval)
 			: "memory");
 
-	return (!res);
+	return (res);
 }
 
 static __inline int
@@ -195,19 +241,20 @@ atomic_fcmpset_32(volatile uint32_t *p, uint32_t *cmpval, uint32_t newval)
 
 	__asm __volatile(
 		"0:"
-			"li   %1, 1\n"		/* Preset to fail */
-			"lr.w %0, %2\n"		/* Load old value */
+			"li.w   %1, 0\n"		/* Preset to fail */
+			"ll.w %0, %2\n"		/* Load old value */
 			"bne  %0, %z4, 1f\n"	/* Compare */
-			"sc.w %1, %z5, %2\n"	/* Try to store new value */
-			"j 2f\n"
+      "move %1, %z5\n"
+			"sc.w %1, %2\n"	/* Try to store new value */
+			"b 2f\n"
 		"1:"
-			"sw   %0, %3\n"		/* Save old value */
+			"st.w  %0, %3\n"		/* Save old value */
 		"2:"
-			: "=&r" (tmp), "=&r" (res), "+A" (*p), "+A" (*cmpval)
+			: "=&r" (tmp), "=&r" (res), "+ZB" (*p), "+ZB" (*cmpval)
 			: "rJ" ((long)(int32_t)*cmpval), "rJ" (newval)
 			: "memory");
 
-	return (!res);
+	return (res);
 }
 
 static __inline uint32_t
@@ -215,8 +262,8 @@ atomic_fetchadd_32(volatile uint32_t *p, uint32_t val)
 {
 	uint32_t ret;
 
-	__asm __volatile("amoadd.w %0, %2, %1"
-			: "=&r" (ret), "+A" (*p)
+	__asm __volatile("amadd.w %0, %2, %1"
+			: "=&r" (ret), "+ZB" (*p)
 			: "r" (val)
 			: "memory");
 
@@ -231,8 +278,8 @@ atomic_readandclear_32(volatile uint32_t *p)
 
 	val = 0;
 
-	__asm __volatile("amoswap.w %0, %2, %1"
-			: "=&r"(ret), "+A" (*p)
+	__asm __volatile("amswap.w %0, %2, %1"
+			: "=&r"(ret), "+ZB" (*p)
 			: "r" (val)
 			: "memory");
 
@@ -263,7 +310,7 @@ atomic_load_acq_32(volatile uint32_t *p)
 
 	ret = *p;
 
-	fence();
+	ldacq_mb();
 
 	return (ret);
 }
@@ -272,7 +319,7 @@ static __inline void
 atomic_store_rel_32(volatile uint32_t *p, uint32_t val)
 {
 
-	fence();
+	strel_mb();
 
 	*p = val;
 }
@@ -297,8 +344,8 @@ static __inline void
 atomic_add_64(volatile uint64_t *p, uint64_t val)
 {
 
-	__asm __volatile("amoadd.d zero, %1, %0"
-			: "+A" (*p)
+	__asm __volatile("amadd.d $zero, %1, %0"
+			: "+ZB" (*p)
 			: "r" (val)
 			: "memory");
 }
@@ -307,8 +354,8 @@ static __inline void
 atomic_subtract_64(volatile uint64_t *p, uint64_t val)
 {
 
-	__asm __volatile("amoadd.d zero, %1, %0"
-			: "+A" (*p)
+	__asm __volatile("amadd.d $zero, %1, %0"
+			: "+ZB" (*p)
 			: "r" (-val)
 			: "memory");
 }
@@ -317,8 +364,8 @@ static __inline void
 atomic_set_64(volatile uint64_t *p, uint64_t val)
 {
 
-	__asm __volatile("amoor.d zero, %1, %0"
-			: "+A" (*p)
+	__asm __volatile("amor.d $zero, %1, %0"
+			: "+ZB" (*p)
 			: "r" (val)
 			: "memory");
 }
@@ -327,8 +374,8 @@ static __inline void
 atomic_clear_64(volatile uint64_t *p, uint64_t val)
 {
 
-	__asm __volatile("amoand.d zero, %1, %0"
-			: "+A" (*p)
+	__asm __volatile("amand.d $zero, %1, %0"
+			: "+ZB" (*p)
 			: "r" (~val)
 			: "memory");
 }
@@ -343,17 +390,18 @@ atomic_cmpset_64(volatile uint64_t *p, uint64_t cmpval, uint64_t newval)
 
 	__asm __volatile(
 		"0:"
-			"li   %1, 1\n" /* Preset to fail */
-			"lr.d %0, %2\n"
-			"bne  %0, %z3, 1f\n"
-			"sc.d %1, %z4, %2\n"
-			"bnez %1, 0b\n"
+			"li.w   %1, 0\n" /* Preset to fail */
+			"ll.d %0, %2\n"  /* tmp = *p */
+			"bne  %0, %z3, 1f\n" /* *p == cmpval */
+      "move %1, %z4\n"
+			"sc.d %1, %2\n" /* *p = newval */
+			"beqz %1, 0b\n"
 		"1:"
-			: "=&r" (tmp), "=&r" (res), "+A" (*p)
+			: "=&r" (tmp), "=&r" (res), "+ZB" (*p)
 			: "rJ" (cmpval), "rJ" (newval)
 			: "memory");
 
-	return (!res);
+	return (res);
 }
 
 static __inline int
@@ -366,19 +414,20 @@ atomic_fcmpset_64(volatile uint64_t *p, uint64_t *cmpval, uint64_t newval)
 
 	__asm __volatile(
 		"0:"
-			"li   %1, 1\n"		/* Preset to fail */
-			"lr.d %0, %2\n"		/* Load old value */
+			"li.w   %1, 0\n"		/* Preset to fail */
+			"ll.d %0, %2\n"		/* Load old value */
 			"bne  %0, %z4, 1f\n"	/* Compare */
-			"sc.d %1, %z5, %2\n"	/* Try to store new value */
-			"j 2f\n"
+      "move %1, %z5\n"
+			"sc.d %1, %2\n"	/* Try to store new value */
+			"b 2f\n"
 		"1:"
-			"sd   %0, %3\n"		/* Save old value */
+			"st.d  %0, %3\n"		/* Save old value */
 		"2:"
-			: "=&r" (tmp), "=&r" (res), "+A" (*p), "+A" (*cmpval)
+			: "=&r" (tmp), "=&r" (res), "+ZB" (*p), "+ZB" (*cmpval)
 			: "rJ" (*cmpval), "rJ" (newval)
 			: "memory");
 
-	return (!res);
+	return (res);
 }
 
 static __inline uint64_t
@@ -386,8 +435,8 @@ atomic_fetchadd_64(volatile uint64_t *p, uint64_t val)
 {
 	uint64_t ret;
 
-	__asm __volatile("amoadd.d %0, %2, %1"
-			: "=&r" (ret), "+A" (*p)
+	__asm __volatile("amadd.d %0, %2, %1"
+			: "=&r" (ret), "+ZB" (*p)
 			: "r" (val)
 			: "memory");
 
@@ -402,8 +451,8 @@ atomic_readandclear_64(volatile uint64_t *p)
 
 	val = 0;
 
-	__asm __volatile("amoswap.d %0, %2, %1"
-			: "=&r"(ret), "+A" (*p)
+	__asm __volatile("amswap.d %0, %2, %1"
+			: "=&r"(ret), "+ZB" (*p)
 			: "r" (val)
 			: "memory");
 
@@ -415,8 +464,8 @@ atomic_swap_32(volatile uint32_t *p, uint32_t val)
 {
 	uint32_t old;
 
-	__asm __volatile("amoswap.w %0, %2, %1"
-			: "=&r"(old), "+A" (*p)
+	__asm __volatile("amswap.w %0, %2, %1"
+			: "=&r"(old), "+ZB" (*p)
 			: "r" (val)
 			: "memory");
 
@@ -428,8 +477,8 @@ atomic_swap_64(volatile uint64_t *p, uint64_t val)
 {
 	uint64_t old;
 
-	__asm __volatile("amoswap.d %0, %2, %1"
-			: "=&r"(old), "+A" (*p)
+	__asm __volatile("amswap.d %0, %2, %1"
+			: "=&r"(old), "+ZB" (*p)
 			: "r" (val)
 			: "memory");
 
@@ -473,7 +522,7 @@ atomic_load_acq_64(volatile uint64_t *p)
 
 	ret = *p;
 
-	fence();
+	ldacq_mb();
 
 	return (ret);
 }
@@ -482,7 +531,7 @@ static __inline void
 atomic_store_rel_64(volatile uint64_t *p, uint64_t val)
 {
 
-	fence();
+	strel_mb();
 
 	*p = val;
 }
@@ -509,28 +558,28 @@ static __inline void
 atomic_thread_fence_acq(void)
 {
 
-	fence();
+	ldacq_mb();
 }
 
 static __inline void
 atomic_thread_fence_rel(void)
 {
 
-	fence();
+	strel_mb();
 }
 
 static __inline void
 atomic_thread_fence_acq_rel(void)
 {
 
-	fence();
+	__smp_mb();
 }
 
 static __inline void
 atomic_thread_fence_seq_cst(void)
 {
 
-	fence();
+	mb();
 }
 
 #define	atomic_add_rel_long		atomic_add_rel_64
