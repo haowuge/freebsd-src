@@ -65,7 +65,7 @@ loongarch/loongarch/stack_machdep.c	optional	ddb | stack
 loongarch/loongarch/support.S		standard
 loongarch/loongarch/swtch.S		standard
 loongarch/loongarch/sys_machdep.c	standard
-loongarch/loongarch/riscv/trap.c		standard
+loongarch/loongarch/trap.c		standard
 loongarch/loongarch/timer.c		standard
 loongarch/loongarch/uio_machdep.c	standard
 loongarch/loongarch/uma_machdep.c	standard
