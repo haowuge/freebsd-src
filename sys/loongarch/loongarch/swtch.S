@@ -37,7 +37,7 @@
 
 #include <machine/param.h>
 #include <machine/asm.h>
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 #include <machine/pte.h>
 .macro __fpe_state_save p
 	/*

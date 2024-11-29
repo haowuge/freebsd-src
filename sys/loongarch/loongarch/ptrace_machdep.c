@@ -58,7 +58,7 @@
 #include <machine/cpu.h>
 #include <machine/pcb.h>
 #include <machine/pte.h>
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 #include <machine/sbi.h>
 #include <machine/trap.h>
 

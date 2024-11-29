@@ -36,7 +36,7 @@
 #include <machine/frame.h>
 #include <machine/gdb_machdep.h>
 #include <machine/pcb.h>
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 
 #include <gdb/gdb.h>
 

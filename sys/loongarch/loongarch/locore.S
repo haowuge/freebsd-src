@@ -38,7 +38,7 @@
 #include <machine/asm.h>
 #include <machine/param.h>
 #include <machine/trap.h>
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 #include <machine/pte.h>
 
 	.globl	kernbase

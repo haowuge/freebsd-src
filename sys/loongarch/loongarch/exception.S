@@ -36,7 +36,7 @@
 #include "assym.inc"
 
 #include <machine/trap.h>
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 
 .macro save_registers mode
 	addi	sp, sp, -(TF_SIZE)

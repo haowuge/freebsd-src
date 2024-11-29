@@ -47,7 +47,7 @@
 #include <vm/uma.h>
 #include <vm/uma_int.h>
 
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 #include <machine/cpu.h>
 #include <machine/cpufunc.h>
 #include <machine/pcb.h>

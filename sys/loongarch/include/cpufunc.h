@@ -44,7 +44,7 @@ breakpoint(void)
 
 #ifdef _KERNEL
 
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 
 static __inline register_t
 intr_disable(void)

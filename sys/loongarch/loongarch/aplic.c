@@ -37,7 +37,7 @@
 
 #include <machine/bus.h>
 #include <machine/intr.h>
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_bus.h>

@@ -34,7 +34,7 @@
  */
 
 #include <machine/asm.h>
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 #include <sys/errno.h>
 
 #include "assym.inc"

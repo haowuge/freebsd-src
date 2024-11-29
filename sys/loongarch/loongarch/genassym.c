@@ -45,7 +45,7 @@
 #include <vm/pmap.h>
 #include <vm/vm_map.h>
 
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 #include <machine/frame.h>
 #include <machine/pcb.h>
 #include <machine/cpu.h>

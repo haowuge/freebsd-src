@@ -34,7 +34,7 @@
 
 #include <machine/asm.h>
 #include <machine/setjmp.h>
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 
 #include "assym.inc"
 

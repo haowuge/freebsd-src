@@ -46,7 +46,7 @@
 #include <ddb/db_sym.h>
 
 #include <machine/pcb.h>
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 #include <machine/stack.h>
 #include <machine/vmparam.h>
 
