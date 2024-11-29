@@ -28,7 +28,7 @@
 #include <sys/time.h>
 #include <sys/vdso.h>
 
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 
 #include <errno.h>
 
