@@ -1,5 +1,5 @@
 #
-# GENERIC -- Generic kernel configuration file for FreeBSD/RISC-V
+# GENERIC -- Generic kernel configuration file for FreeBSD/LoongArch
 #
 # For more information on this file, please read the config(5) manual page,
 # and/or the handbook section on Kernel Configuration Files:
@@ -17,7 +17,7 @@
 # in NOTES.
 #
 
-cpu		RISCV
+cpu		LoongArch
 ident		GENERIC
 
 makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
@@ -84,7 +84,7 @@ device		clk
 device		hwreset
 device		syscon
 device		syscon_power
-device		riscv_syscon
+device		loongarch_syscon
 
 # Bus drivers
 device		pci
