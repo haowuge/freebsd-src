@@ -52,11 +52,8 @@
 #include <machine/cpufunc.h>
 #include <machine/pcb.h>
 #include <machine/frame.h>
-#include <machine/sbi.h>
 
-#if __riscv_xlen == 64
 #define	TP_OFFSET	16	/* sizeof(struct tcb) */
-#endif
 
 /*
  * Finish a fork operation, with process p2 nearly set up.
@@ -72,8 +69,6 @@ cpu_fork(struct thread *td1, struct proc *p2, struct thread *td2, int flags)
 	if ((flags & RFPROC) == 0)
 		return;
 
-	/* RISCVTODO: save the FPU state here */
-
 	pcb2 = (struct pcb *)(td2->td_kstack +
 	    td2->td_kstack_pages * PAGE_SIZE) - 1;
 
@@ -84,13 +79,15 @@ cpu_fork(struct thread *td1, struct proc *p2, struct thread *td2, int flags)
 	bcopy(td1->td_frame, tf, sizeof(*tf));
 
 	/* Clear syscall error flag */
+	// FIXME
 	tf->tf_t[0] = 0;
 
 	/* Arguments for child */
 	tf->tf_a[0] = 0;
 	tf->tf_a[1] = 0;
-	tf->tf_sstatus |= (SSTATUS_SPIE); /* Enable interrupts. */
-	tf->tf_sstatus &= ~(SSTATUS_SPP); /* User mode. */
+
+	tf->tf_crmd |= CSR_CRMD_IE; /* Enable interrupts. */
+	tf->tf_crmd |= PLV_USER << CSR_CRMD_PLV_SHIFT; /* User mode. */
 
 	td2->td_frame = tf;
 
@@ -102,14 +99,15 @@ cpu_fork(struct thread *td1, struct proc *p2, struct thread *td2, int flags)
 
 	/* Setup to release spin count in fork_exit(). */
 	td2->td_md.md_spinlock_count = 1;
-	td2->td_md.md_saved_sstatus_ie = (SSTATUS_SIE);
+	// FIXME
+	//td2->td_md.md_saved_sstatus_ie = (SSTATUS_SIE);
 }
 
 void
 cpu_reset(void)
 {
-
-	sbi_system_reset(SBI_SRST_TYPE_COLD_REBOOT, SBI_SRST_REASON_NONE);
+	// FIXME
+	//sbi_system_reset(SBI_SRST_TYPE_COLD_REBOOT, SBI_SRST_REASON_NONE);
 
 	while(1);
 }
@@ -140,7 +138,7 @@ cpu_set_syscall_retval(struct thread *td, int error)
 
 	switch (error) {
 	case ERESTART:
-		frame->tf_sepc -= 4;		/* prev instruction */
+		frame->tf_era -= 4;		/* prev instruction */
 		break;
 	case EJUSTRETURN:
 		break;
@@ -172,14 +170,15 @@ cpu_copy_thread(struct thread *td, struct thread *td0)
 
 	/* Setup to release spin count in fork_exit(). */
 	td->td_md.md_spinlock_count = 1;
-	td->td_md.md_saved_sstatus_ie = (SSTATUS_SIE);
+	// FIXME
+	//td->td_md.md_saved_sstatus_ie = (SSTATUS_SIE);
 }
 
 /*
  * Set that machine state for performing an upcall that starts
  * the entry function with the given argument.
  */
-int
+void
 cpu_set_upcall(struct thread *td, void (*entry)(void *), void *arg,
 	stack_t *stack)
 {
@@ -188,9 +187,8 @@ cpu_set_upcall(struct thread *td, void (*entry)(void *), void *arg,
 	tf = td->td_frame;
 
 	tf->tf_sp = STACKALIGN((uintptr_t)stack->ss_sp + stack->ss_size);
-	tf->tf_sepc = (register_t)entry;
+	tf->tf_era = (register_t)entry;
 	tf->tf_a[0] = (register_t)arg;
-	return (0);
 }
 
 int
@@ -273,5 +271,5 @@ cpu_procctl(struct thread *td __unused, int idtype __unused, id_t id __unused,
 void
 cpu_sync_core(void)
 {
-	fence_i();
+	flush_icache();
 }

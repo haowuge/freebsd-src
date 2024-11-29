@@ -60,7 +60,7 @@
 #include <dev/ofw/ofw_bus_subr.h>
 #endif
 
-const char machine[] = "riscv";
+const char machine[] = "loongarch";
 
 SYSCTL_CONST_STRING(_hw, HW_MACHINE, machine, CTLFLAG_RD | CTLFLAG_CAPRD,
     machine, "Machine class");
@@ -79,14 +79,8 @@ bool __read_frequently has_sscofpmf;
 struct cpu_desc {
 	const char	*cpu_mvendor_name;
 	const char	*cpu_march_name;
-	u_int		isa_extensions;		/* Single-letter extensions. */
-	u_int		mmu_caps;
-	u_int		smode_extensions;
-#define	 SV_SSTC	(1 << 0)
-#define	 SV_SVNAPOT	(1 << 1)
-#define	 SV_SVPBMT	(1 << 2)
-#define	 SV_SVINVAL	(1 << 3)
-#define	 SV_SSCOFPMF	(1 << 4)
+
+	struct cpuinfo_loongarch cpuinfo;
 };
 
 struct cpu_desc cpu_desc[MAXCPU];
@@ -99,20 +93,18 @@ struct marchid_entry {
 	const char	*march_name;
 };
 
+#define MARCHID_LA32 CPUCFG1_ISGR32
+#define MARCHID_LA64 CPUCFG1_ISGR64
 #define	MARCHID_END	{ -1ul, NULL }
 
-/* Open-source RISC-V architecture IDs; globally allocated. */
-static const struct marchid_entry global_marchids[] = {
-	{ MARCHID_UCB_ROCKET,	"UC Berkeley Rocket"		},
-	{ MARCHID_UCB_BOOM,	"UC Berkeley Boom"		},
-	{ MARCHID_UCB_SPIKE,	"UC Berkeley Spike"		},
-	{ MARCHID_UCAM_RVBS,	"University of Cambridge RVBS"	},
-	MARCHID_END
-};
+#define MVENDORID_UNIMPL 0
+#define MVENDORID_LOONGSON PRID_COMP_LOONGSON
 
-static const struct marchid_entry sifive_marchids[] = {
-	{ MARCHID_SIFIVE_U7,	"6/7/P200/X200-Series Processor" },
-	MARCHID_END
+
+static const struct marchid_entry loongson_marchids[] = {
+	{ MARCHID_LA32, "Loongson-32bit" },
+	{ MARCHID_LA64, "Loongson-64bit" },
+	MARCHID_END,
 };
 
 /*
@@ -123,267 +115,138 @@ static const struct {
 	const char			*mvendor_name;
 	const struct marchid_entry	*marchid_table;
 } mvendor_ids[] = {
+	{ MVENDORID_LOONGSON, "Loongson", loongson_marchids },
 	{ MVENDORID_UNIMPL,	"Unspecified",		NULL		},
-	{ MVENDORID_SIFIVE,	"SiFive",		sifive_marchids	},
-	{ MVENDORID_THEAD,	"T-Head",		NULL		},
 };
 
-/*
- * The ISA string describes the complete set of instructions supported by a
- * RISC-V CPU. The string begins with a small prefix (e.g. rv64) indicating the
- * base ISA. It is followed first by single-letter ISA extensions, and then
- * multi-letter ISA extensions.
- *
- * Underscores are used mainly to separate consecutive multi-letter extensions,
- * but may optionally appear between any two extensions. An extension may be
- * followed by a version number, in the form of 'Mpm', where M is the
- * extension's major version number, and 'm' is the minor version number.
- *
- * The format is described in detail by the "ISA Extension Naming Conventions"
- * chapter of the unprivileged spec.
- */
-#define	ISA_PREFIX		("rv" __XSTRING(__riscv_xlen))
-#define	ISA_PREFIX_LEN		(sizeof(ISA_PREFIX) - 1)
-
-static __inline int
-parse_ext_s(struct cpu_desc *desc, char *isa, int idx, int len)
+static void cpu_probe_common(struct cpuinfo_loongarch *c)
 {
-#define	CHECK_S_EXT(str, flag)						\
-	do {								\
-		if (strncmp(&isa[idx], (str),				\
-		    MIN(strlen(str), len - idx)) == 0) {		\
-			desc->smode_extensions |= flag;			\
-			return (idx + strlen(str));			\
-		}							\
-	} while (0)
+	unsigned int config;
+	unsigned long asid_mask;
 
-	/* Check for known/supported extensions. */
-	CHECK_S_EXT("sstc",	SV_SSTC);
-	CHECK_S_EXT("svnapot",	SV_SVNAPOT);
-	CHECK_S_EXT("svpbmt",	SV_SVPBMT);
-	CHECK_S_EXT("svinval",	SV_SVINVAL);
-	CHECK_S_EXT("sscofpmf",	SV_SSCOFPMF);
+	c->options = LOONGARCH_CPU_CPUCFG | LOONGARCH_CPU_CSR |
+		LOONGARCH_CPU_TLB | LOONGARCH_CPU_VINT | LOONGARCH_CPU_WATCH;
 
-#undef CHECK_S_EXT
+	c->hwcap = HWCAP_LOONGARCH_CPUCFG;
 
-	/*
-	 * Proceed to the next multi-letter extension or the end of the
-	 * string.
-	 */
-	while (isa[idx] != '_' && idx < len) {
-		idx++;
+	config = read_cpucfg(LOONGARCH_CPUCFG1);
+	if (config & CPUCFG1_UAL) {
+		c->options |= LOONGARCH_CPU_UAL;
+		c->hwcap |= HWCAP_LOONGARCH_UAL;
+	}
+	if (config & CPUCFG1_CRC32) {
+		c->options |= LOONGARCH_CPU_CRC32;
+		c->hwcap |= HWCAP_LOONGARCH_CRC32;
 	}
 
-	return (idx);
-}
-
-static __inline int
-parse_ext_x(struct cpu_desc *desc __unused, char *isa, int idx, int len)
-{
-	/*
-	 * Proceed to the next multi-letter extension or the end of the
-	 * string.
-	 */
-	while (isa[idx] != '_' && idx < len) {
-		idx++;
+	config = read_cpucfg(LOONGARCH_CPUCFG2);
+	if (config & CPUCFG2_LAM) {
+		c->options |= LOONGARCH_CPU_LAM;
+		c->hwcap |= HWCAP_LOONGARCH_LAM;
 	}
-
-	return (idx);
-}
-
-static __inline int
-parse_ext_z(struct cpu_desc *desc __unused, char *isa, int idx, int len)
-{
-	/*
-	 * Proceed to the next multi-letter extension or the end of the
-	 * string.
-	 *
-	 * TODO: parse some of these.
-	 */
-	while (isa[idx] != '_' && idx < len) {
-		idx++;
+	if (config & CPUCFG2_FP) {
+		c->options |= LOONGARCH_CPU_FPU;
+		c->hwcap |= HWCAP_LOONGARCH_FPU;
 	}
-
-	return (idx);
-}
-
-static __inline int
-parse_ext_version(char *isa, int idx, u_int *majorp __unused,
-    u_int *minorp __unused)
-{
-	/* Major version. */
-	while (isdigit(isa[idx]))
-		idx++;
-
-	if (isa[idx] != 'p')
-		return (idx);
-	else
-		idx++;
-
-	/* Minor version. */
-	while (isdigit(isa[idx]))
-		idx++;
-
-	return (idx);
-}
-
-/*
- * Parse the ISA string, building up the set of HWCAP bits as they are found.
- */
-static int
-parse_riscv_isa(struct cpu_desc *desc, char *isa, int len)
-{
-	int i;
-
-	/* Check the string prefix. */
-	if (strncmp(isa, ISA_PREFIX, ISA_PREFIX_LEN) != 0) {
-		printf("%s: Unrecognized ISA string: %s\n", __func__, isa);
-		return (-1);
+#ifdef CONFIG_CPU_HAS_LSX
+	if (config & CPUCFG2_LSX) {
+		c->options |= LOONGARCH_CPU_LSX;
+		c->hwcap |= HWCAP_LOONGARCH_LSX;
 	}
-
-	i = ISA_PREFIX_LEN;
-	while (i < len) {
-		switch(isa[i]) {
-		case 'a':
-		case 'c':
-		case 'd':
-		case 'f':
-		case 'i':
-		case 'm':
-			desc->isa_extensions |= HWCAP_ISA_BIT(isa[i]);
-			i++;
-			break;
-		case 'g':
-			desc->isa_extensions |= HWCAP_ISA_G;
-			i++;
-			break;
-		case 's':
-			/*
-			 * XXX: older versions of this string erroneously
-			 * indicated supervisor and user mode support as
-			 * single-letter extensions. Detect and skip both 's'
-			 * and 'u'.
-			 */
-			if (isa[i - 1] != '_' && isa[i + 1] == 'u') {
-				i += 2;
-				continue;
-			}
-
-			/*
-			 * Supervisor-level extension namespace.
-			 */
-			i = parse_ext_s(desc, isa, i, len);
-			break;
-		case 'x':
-			/*
-			 * Custom extension namespace. For now, we ignore
-			 * these.
-			 */
-			i = parse_ext_x(desc, isa, i, len);
-			break;
-		case 'z':
-			/*
-			 * Multi-letter standard extension namespace.
-			 */
-			i = parse_ext_z(desc, isa, i, len);
-			break;
-		case '_':
-			i++;
-			continue;
-		default:
-			/* Unrecognized/unsupported. */
-			i++;
-			break;
-		}
-
-		i = parse_ext_version(isa, i, NULL, NULL);
-	}
-
-	return (0);
-}
-
-#ifdef FDT
-static void
-parse_mmu_fdt(struct cpu_desc *desc, phandle_t node)
-{
-	char mmu[16];
-
-	desc->mmu_caps |= MMU_SV39;
-	if (OF_getprop(node, "mmu-type", mmu, sizeof(mmu)) > 0) {
-		if (strcmp(mmu, "riscv,sv48") == 0)
-			desc->mmu_caps |= MMU_SV48;
-		else if (strcmp(mmu, "riscv,sv57") == 0)
-			desc->mmu_caps |= MMU_SV48 | MMU_SV57;
-	}
-}
-
-static void
-identify_cpu_features_fdt(u_int cpu, struct cpu_desc *desc)
-{
-	char isa[1024];
-	phandle_t node;
-	ssize_t len;
-	pcell_t reg;
-	u_int hart;
-
-	node = OF_finddevice("/cpus");
-	if (node == -1) {
-		printf("%s: could not find /cpus node in FDT\n", __func__);
-		return;
-	}
-
-	hart = pcpu_find(cpu)->pc_hart;
-
-	/*
-	 * Locate our current CPU's node in the device-tree, and parse its
-	 * contents to detect supported CPU/ISA features and extensions.
-	 */
-	for (node = OF_child(node); node > 0; node = OF_peer(node)) {
-		/* Skip any non-CPU nodes, such as cpu-map. */
-		if (!ofw_bus_node_is_compatible(node, "riscv"))
-			continue;
-
-		/* Find this CPU */
-		if (OF_getencprop(node, "reg", &reg, sizeof(reg)) <= 0 ||
-		    reg != hart)
-			continue;
-
-		len = OF_getprop(node, "riscv,isa", isa, sizeof(isa));
-		KASSERT(len <= sizeof(isa), ("ISA string truncated"));
-		if (len == -1) {
-			printf("%s: could not find 'riscv,isa' property "
-			    "for CPU %d, hart %u\n", __func__, cpu, hart);
-			return;
-		}
-
-		/*
-		 * The string is specified to be lowercase, but let's be
-		 * certain.
-		 */
-		for (int i = 0; i < len; i++)
-			isa[i] = tolower(isa[i]);
-		if (parse_riscv_isa(desc, isa, len) != 0)
-			return;
-
-		/* Check MMU features. */
-		parse_mmu_fdt(desc, node);
-
-		/* We are done. */
-		break;
-	}
-	if (node <= 0) {
-		printf("%s: could not find FDT node for CPU %u, hart %u\n",
-		    __func__, cpu, hart);
-	}
-}
 #endif
+#ifdef CONFIG_CPU_HAS_LASX
+	if (config & CPUCFG2_LASX) {
+		c->options |= LOONGARCH_CPU_LASX;
+		c->hwcap |= HWCAP_LOONGARCH_LASX;
+	}
+#endif
+	if (config & CPUCFG2_COMPLEX) {
+		c->options |= LOONGARCH_CPU_COMPLEX;
+		c->hwcap |= HWCAP_LOONGARCH_COMPLEX;
+	}
+	if (config & CPUCFG2_CRYPTO) {
+		c->options |= LOONGARCH_CPU_CRYPTO;
+		c->hwcap |= HWCAP_LOONGARCH_CRYPTO;
+	}
+	if (config & CPUCFG2_PTW) {
+		c->options |= LOONGARCH_CPU_PTW;
+		c->hwcap |= HWCAP_LOONGARCH_PTW;
+	}
+	if (config & CPUCFG2_LVZP) {
+		c->options |= LOONGARCH_CPU_LVZ;
+		c->hwcap |= HWCAP_LOONGARCH_LVZ;
+	}
+#ifdef CONFIG_CPU_HAS_LBT
+	if (config & CPUCFG2_X86BT) {
+		c->options |= LOONGARCH_CPU_LBT_X86;
+		c->hwcap |= HWCAP_LOONGARCH_LBT_X86;
+	}
+	if (config & CPUCFG2_ARMBT) {
+		c->options |= LOONGARCH_CPU_LBT_ARM;
+		c->hwcap |= HWCAP_LOONGARCH_LBT_ARM;
+	}
+	if (config & CPUCFG2_MIPSBT) {
+		c->options |= LOONGARCH_CPU_LBT_MIPS;
+		c->hwcap |= HWCAP_LOONGARCH_LBT_MIPS;
+	}
+#endif
+
+	config = read_cpucfg(LOONGARCH_CPUCFG6);
+	if (config & CPUCFG6_PMP)
+		c->options |= LOONGARCH_CPU_PMP;
+
+	config = iocsr_read32(LOONGARCH_IOCSR_FEATURES);
+	if (config & IOCSRF_CSRIPI)
+		c->options |= LOONGARCH_CPU_CSRIPI;
+	if (config & IOCSRF_EXTIOI)
+		c->options |= LOONGARCH_CPU_EXTIOI;
+	if (config & IOCSRF_FREQSCALE)
+		c->options |= LOONGARCH_CPU_SCALEFREQ;
+	if (config & IOCSRF_FLATMODE)
+		c->options |= LOONGARCH_CPU_FLATMODE;
+	if (config & IOCSRF_EIODECODE)
+		c->options |= LOONGARCH_CPU_EIODECODE;
+	if (config & IOCSRF_VM)
+		c->options |= LOONGARCH_CPU_HYPERVISOR;
+
+	config = csr_read32(LOONGARCH_CSR_ASID);
+	config = (config & CSR_ASID_BIT) >> CSR_ASID_BIT_SHIFT;
+	asid_mask = _GENMASK(config - 1, 0);
+	c->asid_mask = asid_mask;
+
+	config = read_csr_prcfg1();
+	c->ksave_mask = _GENMASK((config & CSR_CONF1_KSNUM) - 1, 0);
+	c->ksave_mask &= ~(EXC_KSAVE_MASK | PERCPU_KSAVE_MASK);
+
+	config = read_csr_prcfg3();
+	switch (config & CSR_CONF3_TLBTYPE) {
+		case 0:
+			c->tlbsizemtlb = 0;
+			c->tlbsizestlbsets = 0;
+			c->tlbsizestlbways = 0;
+			c->tlbsize = 0;
+			break;
+		case 1:
+			c->tlbsizemtlb = ((config & CSR_CONF3_MTLBSIZE) >> CSR_CONF3_MTLBSIZE_SHIFT) + 1;
+			c->tlbsizestlbsets = 0;
+			c->tlbsizestlbways = 0;
+			c->tlbsize = c->tlbsizemtlb + c->tlbsizestlbsets * c->tlbsizestlbways;
+			break;
+		case 2:
+			c->tlbsizemtlb = ((config & CSR_CONF3_MTLBSIZE) >> CSR_CONF3_MTLBSIZE_SHIFT) + 1;
+			c->tlbsizestlbsets = 1 << ((config & CSR_CONF3_STLBIDX) >> CSR_CONF3_STLBIDX_SHIFT);
+			c->tlbsizestlbways = ((config & CSR_CONF3_STLBWAYS) >> CSR_CONF3_STLBWAYS_SHIFT) + 1;
+			c->tlbsize = c->tlbsizemtlb + c->tlbsizestlbsets * c->tlbsizestlbways;
+			break;
+		default:
+			break;
+	}
+}
 
 static void
 identify_cpu_features(u_int cpu, struct cpu_desc *desc)
 {
-#ifdef FDT
-	identify_cpu_features_fdt(cpu, desc);
-#endif
+	cpu_probe_common(&desc->cpuinfo);
 }
 
 /*
@@ -405,17 +268,7 @@ update_global_capabilities(u_int cpu, struct cpu_desc *desc)
 	} while (0)
 
 	/* Update the capabilities exposed to userspace via AT_HWCAP. */
-	UPDATE_CAP(elf_hwcap, (u_long)desc->isa_extensions);
-
-	/*
-	 * MMU capabilities, e.g. Sv48.
-	 */
-	UPDATE_CAP(mmu_caps, desc->mmu_caps);
-
-	/* Supervisor-mode extension support. */
-	UPDATE_CAP(has_sstc, (desc->smode_extensions & SV_SSTC) != 0);
-	UPDATE_CAP(has_sscofpmf, (desc->smode_extensions & SV_SSCOFPMF) != 0);
-
+	UPDATE_CAP(elf_hwcap, (u_long)desc->cpuinfo.hwcap);
 #undef UPDATE_CAP
 }
 
@@ -428,6 +281,9 @@ identify_cpu_ids(struct cpu_desc *desc)
 	desc->cpu_mvendor_name = "Unknown";
 	desc->cpu_march_name = "Unknown";
 
+	mvendorid = desc->cpuinfo.processor_id & PRID_COMP_MASK;
+	marchid = desc->cpuinfo.arch & LOONGARCH_ARCH_MASK;
+
 	/*
 	 * Search for a recognized vendor, and possibly obtain the secondary
 	 * table for marchid lookup.
@@ -439,16 +295,6 @@ identify_cpu_ids(struct cpu_desc *desc)
 			break;
 		}
 	}
-
-	if (marchid == MARCHID_UNIMPL) {
-		desc->cpu_march_name = "Unspecified";
-		return;
-	}
-
-	if (MARCHID_IS_OPENSOURCE(marchid)) {
-		table = global_marchids;
-	} else if (table == NULL)
-		return;
 
 	for (i = 0; table[i].march_name != NULL; i++) {
 		if (marchid == table[i].march_id) {
@@ -463,6 +309,9 @@ identify_cpu(u_int cpu)
 {
 	struct cpu_desc *desc = &cpu_desc[cpu];
 
+	desc->cpuinfo.processor_id = read_cpucfg(LOONGARCH_CPUCFG0);
+	desc->cpuinfo.arch = read_cpucfg(LOONGARCH_CPUCFG1);
+
 	identify_cpu_ids(desc);
 	identify_cpu_features(cpu, desc);
 
@@ -473,57 +322,14 @@ void
 printcpuinfo(u_int cpu)
 {
 	struct cpu_desc *desc;
-	u_int hart;
 
 	desc = &cpu_desc[cpu];
-	hart = pcpu_find(cpu)->pc_hart;
-
-	/* XXX: check this here so we are guaranteed to have console output. */
-	KASSERT(desc->isa_extensions != 0,
-	    ("Empty extension set for CPU %u, did parsing fail?", cpu));
-
-	/*
-	 * Suppress the output of some fields in the common case of identical
-	 * CPU features.
-	 */
-#define	SHOULD_PRINT(_field)	\
-    (cpu == 0 || desc[0]._field != desc[-1]._field)
 
 	/* Always print summary line. */
-	printf("CPU %-3u: Vendor=%s Core=%s (Hart %u)\n", cpu,
-	    desc->cpu_mvendor_name, desc->cpu_march_name, hart);
+	printf("CPU %-3u: Vendor=%s Core=%s \n", cpu,
+	    desc->cpu_mvendor_name, desc->cpu_march_name);
 
 	/* These values are global. */
 	if (cpu == 0)
-		printf("  marchid=%#lx, mimpid=%#lx\n", marchid, mimpid);
-
-	if (SHOULD_PRINT(mmu_caps)) {
-		printf("  MMU: %#b\n", desc->mmu_caps,
-		    "\020"
-		    "\01Sv39"
-		    "\02Sv48"
-		    "\03Sv57");
-	}
-
-	if (SHOULD_PRINT(isa_extensions)) {
-		printf("  ISA: %#b\n", desc->isa_extensions,
-		    "\020"
-		    "\01Atomic"
-		    "\03Compressed"
-		    "\04Double"
-		    "\06Float"
-		    "\15Mult/Div");
-	}
-
-	if (SHOULD_PRINT(smode_extensions)) {
-		printf("  S-mode Extensions: %#b\n", desc->smode_extensions,
-		    "\020"
-		    "\01Sstc"
-		    "\02Svnapot"
-		    "\03Svpbmt"
-		    "\04Svinval"
-		    "\05Sscofpmf");
-	}
-
-#undef SHOULD_PRINT
+		printf("  marchid=%#lx\n", marchid);
 }
