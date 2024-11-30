@@ -32,7 +32,7 @@
 #include <sys/cpuvar_defs.h>
 #include <sys/dtrace.h>
 
-#include <machine/riscvreg.h>
+#include <machine/loongarchreg.h>
 #include <machine/asm.h>
 
 #include "assym.inc"
@@ -41,31 +41,31 @@
 void dtrace_membar_producer(void)
 */
 ENTRY(dtrace_membar_producer)
-	RET
+	ret
 END(dtrace_membar_producer)
 
 /*
 void dtrace_membar_consumer(void)
 */
 ENTRY(dtrace_membar_consumer)
-	RET
+	ret
 END(dtrace_membar_consumer)
 
 /*
 dtrace_icookie_t dtrace_interrupt_disable(void)
 */
 ENTRY(dtrace_interrupt_disable)
-	csrrci	a0, sstatus, (SSTATUS_SIE)
-	andi	a0, a0, (SSTATUS_SIE)
-	RET
+	csrr	$a0, sstatus, (SSTATUS_SIE)
+	andi	$a0, $a0, (SSTATUS_SIE)
+	ret
 END(dtrace_interrupt_disable)
 
 /*
 void dtrace_interrupt_enable(dtrace_icookie_t cookie)
 */
 ENTRY(dtrace_interrupt_enable)
-	csrs	sstatus, a0
-	RET
+	csrs	sstatus, $a0
+	ret
 END(dtrace_interrupt_enable)
 /*
 uint8_t
@@ -184,6 +184,6 @@ ENTRY(dtrace_casptr)
 	bne	a3, a1, 2f	/* *target != cmp ? return */
 	sc.d	a4, a2, 0(a0)	/* Store new to target */
 	bnez	a4, 1b		/* Try again if store not succeed */
-2:	mv	a0, a3		/* Return the value loaded from target */
-	RET
+2:	move	$a0, $a3		/* Return the value loaded from target */
+	ret
 END(dtrace_casptr)
