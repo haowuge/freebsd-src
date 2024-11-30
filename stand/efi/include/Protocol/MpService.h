@@ -39,6 +39,21 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #ifndef _MP_SERVICE_PROTOCOL_H_
 #define _MP_SERVICE_PROTOCOL_H_
 
+/**
+  The function prototype for invoking a function on an Application Processor.
+
+  This definition is used by the UEFI MP Serices Protocol, and the
+  PI SMM System Table.
+
+  @param[in,out] Buffer  The pointer to private data buffer.
+**/
+typedef
+VOID
+(EFIAPI *EFI_AP_PROCEDURE)(
+  IN OUT VOID  *Buffer
+  );
+
+
 ///
 /// Global ID for the EFI_MP_SERVICES_PROTOCOL.
 ///
