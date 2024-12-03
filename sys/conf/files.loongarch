@@ -1,8 +1,3 @@
-cddl/dev/dtrace/loongarch/dtrace_asm.S			optional dtrace compile-with "${DTRACE_S}"
-cddl/dev/dtrace/loongarch/dtrace_isa.c			optional dtrace compile-with "${DTRACE_C}"
-cddl/dev/dtrace/loongarch/dtrace_subr.c			optional dtrace compile-with "${DTRACE_C}"
-cddl/dev/dtrace/loongarch/instr_size.c			optional dtrace compile-with "${DTRACE_C}"
-cddl/dev/fbt/riscv/fbt_isa.c				optional dtrace_fbt | dtraceall compile-with "${FBT_C}"
 crypto/des/des_enc.c		optional	netsmb
 dev/ofw/ofw_cpu.c		optional	fdt
 dev/ofw/ofw_pcib.c		optional 	pci fdt
@@ -11,8 +6,6 @@ dev/pci/pci_dw_if.m		optional	pci fdt
 dev/pci/pci_host_generic.c	optional	pci
 dev/pci/pci_host_generic_fdt.c	optional	pci fdt
 dev/uart/uart_cpu_fdt.c		optional	uart fdt
-dev/uart/uart_dev_lowrisc.c	optional	uart_lowrisc
-dev/xilinx/axi_quad_spi.c	optional	xilinx_spi
 dev/xilinx/axidma.c		optional	axidma xdma
 dev/xilinx/if_xae.c		optional	xae
 dev/xilinx/xlnx_pcib.c		optional	pci fdt xlnx_pcib
@@ -28,7 +21,6 @@ libkern/memset.c		standard
 libkern/strcmp.c		standard
 libkern/strlen.c		standard
 libkern/strncmp.c		standard
-loongarch/loongarch/aplic.c		standard
 loongarch/loongarch/autoconf.c		standard
 loongarch/loongarch/bus_machdep.c	standard
 loongarch/loongarch/bus_space_asm.S	standard
@@ -45,7 +37,7 @@ loongarch/loongarch/elf_machdep.c	standard
 loongarch/loongarch/exception.S		standard
 loongarch/loongarch/exec_machdep.c	standard
 loongarch/loongarch/gdb_machdep.c	optional	gdb
-loongarch/loongarch/intc.c		standard
+loongarch/loongarch/intr_machdep.c	standard
 loongarch/loongarch/identcpu.c		standard
 loongarch/loongarch/locore.S		standard	no-obj
 loongarch/loongarch/machdep.c		standard
@@ -54,13 +46,10 @@ loongarch/loongarch/mp_machdep.c	optional	smp
 loongarch/loongarch/mem.c		standard
 loongarch/loongarch/nexus.c		standard
 loongarch/loongarch/ofw_machdep.c	optional	fdt
-loongarch/loongarch/plic.c		standard
 loongarch/loongarch/pmap.c		standard
 loongarch/loongarch/ptrace_machdep.c	standard
 loongarch/loongarch/loongarch_console.c	optional	rcons
 loongarch/loongarch/loongarch_syscon.c	optional	syscon loongarch_syscon fdt
-loongarch/loongarch/sbi.c		standard
-loongarch/loongarch/sbi_ipi.c		optional	smp
 loongarch/loongarch/stack_machdep.c	optional	ddb | stack
 loongarch/loongarch/support.S		standard
 loongarch/loongarch/swtch.S		standard

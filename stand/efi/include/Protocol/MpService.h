@@ -53,7 +53,6 @@ VOID
   IN OUT VOID  *Buffer
   );
 
-
 ///
 /// Global ID for the EFI_MP_SERVICES_PROTOCOL.
 ///

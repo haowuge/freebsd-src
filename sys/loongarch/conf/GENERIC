@@ -76,8 +76,6 @@ options 	RACCT_DEFAULT_TO_DISABLED # Set kern.racct.enable=0 by default
 options 	RCTL			# Resource limits
 options 	SMP
 
-options               FDT
-
 # pseudo devices
 device		clk
 device		hwreset
@@ -135,7 +133,7 @@ device		hidbus		# Generic HID Bus
 
 # Serial (COM) ports
 device		uart		# Generic UART driver
-device		uart_lowrisc	# lowRISC UART driver
+#device		uart_lowrisc	# lowRISC UART driver
 device		uart_ns8250	# ns8250-type UART driver
 
 # Console
@@ -153,7 +151,7 @@ device		xae		# Xilinx AXI Ethernet MAC
 
 # DMA support
 device		xdma		# DMA interface
-device		axidma		# Xilinx AXI DMA Controller
+#device		axidma		# Xilinx AXI DMA Controller
 
 # GPIO
 device		gpio
