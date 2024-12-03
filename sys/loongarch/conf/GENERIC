@@ -76,8 +76,7 @@ options 	RACCT_DEFAULT_TO_DISABLED # Set kern.racct.enable=0 by default
 options 	RCTL			# Resource limits
 options 	SMP
 
-# RISC-V SBI console
-device		rcons
+options               FDT
 
 # pseudo devices
 device		clk
@@ -144,7 +143,7 @@ device		vt
 device		kbdmux
 
 # RTC
-device		da9063_rtc	# Dialog Semiconductor DA9063 RTC
+#device		da9063_rtc	# Dialog Semiconductor DA9063 RTC
 device		goldfish_rtc	# QEMU RTC
 
 # Ethernet drivers
@@ -164,7 +163,7 @@ device		spibus
 device		spigen
 
 # Power management controllers
-device		da9063_pmic	# Dialog Semiconductor DA9063 PMIC
+#device		da9063_pmic	# Dialog Semiconductor DA9063 PMIC
 
 # Uncomment for memory disk
 # options 	MD_ROOT

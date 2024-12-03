@@ -46,43 +46,6 @@
 
 	.text
 /*
- * Alternate entry point. Used when booting via SBI firmware. It must be placed
- * at the beginning of the .text section. Arguments are as follows:
- *  - a0 = hart ID
- *  - a1 = dtbp
- *
- * Multiple CPUs might enter from this point, so we perform a hart lottery and
- * send the losers to mpentry.
- */
-	.globl _alt_start
-_alt_start:
-	/* Set the global pointer */
-.option push
-.option norelax
-	lla	gp, __global_pointer$
-.option pop
-
-	/* Pick a hart to run the boot process. */
-	lla	t0, hart_lottery
-	li	t1, 1
-	amoadd.w t0, t1, 0(t0)
-
-	/*
-	 * We must jump to mpentry in the non-BSP case because the offset is
-	 * too large to fit in a 12-bit branch immediate.
-	 */
-	beqz	t0, 1f
-	j	mpentry
-1:
-	/* Store the boot hart */
-	lla	t0, boot_hart
-	sw	a0, 0(t0)
-
-	/* Load zero as modulep */
-	mv	a0, zero
-	j	pagetables
-
-/*
  * Main entry point. This routine is marked as the ELF entry, and is where
  * loader(8) will enter the kernel. Arguments are as follows:
  *  - a0 = modulep
@@ -92,198 +55,250 @@ _alt_start:
  */
 	.globl _start
 _start:
-	/* Set the global pointer */
-.option push
-.option norelax
-	lla	gp, __global_pointer$
-.option pop
-
 	/*
 	 * Zero a1 to indicate that we have no DTB pointer. It is already
 	 * included in the loader(8) metadata.
 	 */
-	mv	a1, zero
+	move		$a1, $zero
 
 	/*
-	 * Set up page tables: map a 1GB region starting at KERNBASE using 2MB
-	 * superpages, starting from the first 2MB physical page into which the
-	 * kernel was loaded.  Also reserve an L2 page for the early device map
-	 * and map the DTB, if any, using the second-last entry of that L2
-	 * page.  This is hopefully enough to get us to pmap_bootstrap().
-	 *
-	 * Implementations are required to provide SV39 mode, so we use that
-	 * initially and will optionally enable SV48 mode during kernel pmap
-	 * initialization.
-	 *
 	 *  a0 - modulep or zero
 	 *  a1 - zero or dtbp
 	 */
+
+	/* disable PG */
+	li.w		$t0, 0xa8		# PLV=0, IE=0, PG=0, DA=1
+	csrwr		$t0, LOONGARCH_CSR_CRMD
+
 pagetables:
-	/* Get the kernel's load address */
-	jal	get_physmem
+	/* Get the kernel's load address in s1 */
+	bl		get_physmem
 
-	/* Add L1 entry for kernel */
-	lla	s1, pagetable_l1
-	lla	s2, pagetable_l2	/* Link to next level PN */
-	srli	s2, s2, PAGE_SHIFT
+	/*
+         * map a 1GB region starting at KERNBASE using 2MB hugepage
+	 */
+	la.pcrel	$t0, pagetable_l1
+	la.pcrel	$t1, pagetable_l2
+	li.d		$t2, KERNBASE
+	move		$t3, $s1
+	li.d		$t4, L1_SIZE
+	bl		create_pagetables_to_l2
 
-	li	a5, KERNBASE
-	srli	a5, a5, L1_SHIFT	/* >> L1_SHIFT */
-	andi	a5, a5, Ln_ADDR_MASK	/* & Ln_ADDR_MASK */
-	li	t4, PTE_V
-	slli	t5, s2, PTE_PPN0_S	/* (s2 << PTE_PPN0_S) */
-	or	t6, t4, t5
+	/*
+         * map a 1GB region starting at 0 using 2MB hugepage, Lower half
+	 */
+	la.pcrel	$t0, pagetable_id_l1
+	la.pcrel	$t1, pagetable_id_l2
+	li.d		$t2, 0			/* start from virt 0 */
+	li.d		$t3, 0			/* start phys 0 */
+	li.d		$t4, L1_SIZE
+	bl		create_pagetables_to_l2
 
-	/* Store L1 PTE entry to position */
-	li	a6, PTE_SIZE
-	mulw	a5, a5, a6
-	add	t0, s1, a5
-	sd	t6, (t0)
+	/*
+         * map devmap L1 pagetable
+	 */
+	la.pcrel	$t0, pagetable_l1
+	la.pcrel	$t1, pagetable_l2_devmap
+	li.d		$t2, (VM_MAX_KERNEL_ADDRESS - PMAP_MAPDEV_EARLY_SIZE)
+	bl		create_pagetables_to_l1
 
-	/* Level 2 superpages (512 x 2MiB) */
-	lla	s1, pagetable_l2
-	srli	t4, s9, L2_SHIFT	/* Div physmem base by 2 MiB */
-	li	t2, 512			/* Build 512 entries */
-	add	t3, t4, t2
-	li	t0, (PTE_KERN | PTE_X)
+	/* setup 4KB page size */
+	li.w		$t0, 0xc
+	csrwr		$t0, LOONGARCH_CSR_STLBPGSIZE
+
+	/* setup TLBIDX page size */
+	li.w		$t0, (0xc << CSR_TLBIDX_PS_SHIFT)
+	csrwr		$t0, LOONGARCH_CSR_TLBIDX
+
+	/* set TLBREHI page size */
+	li.d		$t0, 0xc
+	csrwr		$t0, LOONGARCH_CSR_TLBREHI
+
+	/* set PWCL */
+	li.d		$t0, PWCL_BOOT
+	csrwr		$t0, LOONGARCH_CSR_PWCTL0
+
+	/* set PWCH */
+	li.d		$t0, PWCH_BOOT
+	csrwr		$t0, LOONGARCH_CSR_PWCTL1
+
+	/* setup PGD */
+	la.pcrel	$t0, pagetable_l1
+	csrwr		$t0, LOONGARCH_CSR_PGDH		/* high half */
+	la.pcrel	$t0, pagetable_id_l1
+	csrwr		$t0, LOONGARCH_CSR_PGDL		/* low half identity map*/
+
+	/* setup tlbrentry */
+	la.pcrel	$t0, handle_tlbrefill_boot
+	csrwr		$t0, LOONGARCH_CSR_TLBRENTRY
+
+	/* record virtdone virt addr*/
+	la.pcrel	$t1, Lvirtdone
+	ld.d		$t5, $t1, 0
+
+	/* Enable PG */
+        li.w            $t0, 0xb0                # PLV=0, IE=0, PG=1
+        csrwr           $t0, LOONGARCH_CSR_CRMD
+        li.w            $t0, 0x04                # PLV=0, PIE=1, PWE=0
+        csrwr           $t0, LOONGARCH_CSR_PRMD
+        li.w            $t0, 0x00                # FPE=0, SXE=0, ASXE=0, BTE=0
+        csrwr           $t0, LOONGARCH_CSR_EUEN
+
+	/* setup exception */
+	csrrd		$t0, LOONGARCH_CSR_ECFG
+	li.d		$t1, ~0x70000
+	and		$t0, $t0, $t1
+	/* enable timer and ipi */
+	li.d		$t1, ((1 << IRQ_TI) | (1 << IRQ_IPI))
+	or		$t0, $t0, $t1
+	csrwr		$t0, LOONGARCH_CSR_ECFG
+
+	la.pcrel	$t0, cpu_exception_handler
+	la.pcrel	$t1, virt_map	/* physical address of virt_map */
+	ld.d		$t2, $t1, 0	/* virtual address of virt_map */
+	sub.d		$s1, $t2, $t1	/* calculate phys->virt delta */
+	add.d		$t0, $t0, $s1
+	csrwr		$t0, LOONGARCH_CSR_EENTRY
+
+	/* flush tlb (global) */
+	invtlb		0, $zero, $zero
+
+	/* jump to virtual address space */
+	jirl		$zero, $t5, 0
+
+virtdone:
+	la.pcrel	$t0, Lbss
+        ld.d		$t0, $t0, 0         # clear .bss
+        st.d            $zero, $t0, 0
+	la.pcrel	$t1, Lend
+	ld.d		$t1, $t1, 0
 1:
-	slli	t2, t4, PTE_PPN1_S	/* << PTE_PPN1_S */
-	or	t5, t0, t2
-	sd	t5, (s1)		/* Store PTE entry to position */
-	addi	s1, s1, PTE_SIZE
+        addi.d          $t0, $t0, 8
+        st.d            $zero, $t0, 0
+        bne             $t0, $t1, 1b
 
-	addi	t4, t4, 1
-	bltu	t4, t3, 1b
+#ifdef CONFIG_PAGE_SIZE_4KB
+        li.d            $t0, 0
+        li.d            $t1, CSR_STFILL
+        csrxchg         $t0, $t1, LOONGARCH_CSR_IMPCTL1
+#endif
 
-	/* Create an L1 table entry for early devmap */
-	lla	s1, pagetable_l1
-	lla	s2, pagetable_l2_devmap	/* Link to next level PN */
-	srli	s2, s2, PAGE_SHIFT
+        /* KSave3 used for percpu base, initialized as 0 */
+        csrwr           $zero, PERCPU_BASE_KS
+        /* GPR21 used for percpu base (runtime), initialized as 0 */
+        move            $r21, $zero
 
-	li	a5, (VM_MAX_KERNEL_ADDRESS - PMAP_MAPDEV_EARLY_SIZE)
-	srli	a5, a5, L1_SHIFT	/* >> L1_SHIFT */
-	andi	a5, a5, Ln_ADDR_MASK	/* & Ln_ADDR_MASK */
-	li	t4, PTE_V
-	slli	t5, s2, PTE_PPN0_S	/* (s2 << PTE_PPN0_S) */
-	or	t6, t4, t5
-
-	/* Store the L1 table entry */
-	li	a6, PTE_SIZE
-	mulw	a5, a5, a6
-	add	t0, s1, a5
-	sd	t6, (t0)
-
-	/* Check if we have a DTB that needs to be mapped */
-	beqz	a1, 2f
-
-	/* Create an L2 mapping for the DTB */
-	lla	s1, pagetable_l2_devmap
-	mv	s2, a1
-	srli	s2, s2, PAGE_SHIFT
-	/* Mask off any bits that aren't aligned */
-	andi	s2, s2, ~((1 << (PTE_PPN1_S - PTE_PPN0_S)) - 1)
-
-	li	t0, (PTE_KERN)
-	slli	t2, s2, PTE_PPN0_S	/* << PTE_PPN0_S */
-	or	t0, t0, t2
-
-	/* Store the L2 table entry for the DTB */
-	li	a6, PTE_SIZE
-	li	a5, VM_EARLY_DTB_ADDRESS
-	srli	a5, a5, L2_SHIFT    /* >> L2_SHIFT */
-	andi	a5, a5, Ln_ADDR_MASK    /* & Ln_ADDR_MASK */
-	mulw	a5, a5, a6
-	add	t1, s1, a5
-	sd	t0, (t1)
-
-	/* Page tables END */
-
-	/* Setup supervisor trap vector */
-2:
-	lla	t0, va
-	sub	t0, t0, s9
-	li	t1, KERNBASE
-	add	t0, t0, t1
-	csrw	stvec, t0
-
-	/* Set page tables base register */
-	lla	s2, pagetable_l1
-	srli	s2, s2, PAGE_SHIFT
-	li	t0, SATP_MODE_SV39
-	or	s2, s2, t0
-	sfence.vma
-	csrw	satp, s2
-
-	.align 2
-va:
-	/* Set the global pointer again, this time with the virtual address. */
-.option push
-.option norelax
-	lla	gp, __global_pointer$
-.option pop
-
-	/* Setup supervisor trap vector */
-	la	t0, cpu_exception_handler
-	csrw	stvec, t0
-
-	/* Ensure sscratch is zero */
-	li	t0, 0
-	csrw	sscratch, t0
+	la.pcrel	$tp, initstack
 
 	/* Initialize stack pointer */
-	la	sp, initstack_end
+	la.pcrel	$sp, initstack_end
 
-	/* Clear frame pointer */
-	mv	s0, zero
+	/* Allocate space for thread0 PCB and bootparams*/
+	li.d		$t0, (-(PCB_SIZE + LOONGARCH_BOOTPARAMS_SIZE) & ~STACKALIGNBYTES)
+	add.d		$sp, $sp, $t0
 
-	/* Allocate space for thread0 PCB and riscv_bootparams */
-	addi	sp, sp, -(PCB_SIZE + RISCV_BOOTPARAMS_SIZE) & ~STACKALIGNBYTES
+	/* fill bootparams */
+	la.pcrel	$t0, initstack
+	st.d		$t0, $sp, LOONGARCH_BOOTPARAMS_KERN_STACK
+	st.d		$s1, $sp, LOONGARCH_BOOTPARAMS_KERN_PHYS
+	la.pcrel	$t0, pagetable_l1
+	st.d		$t0, $sp, LOONGARCH_BOOTPARAMS_KERN_L1PT
+	st.d		$a0, $sp, LOONGARCH_BOOTPARAMS_MODULEP
 
-	/* Clear BSS */
-	la	t0, _C_LABEL(__bss_start)
-	la	t1, _C_LABEL(_end)
-1:
-	sd	zero, 0(t0)
-	addi	t0, t0, 8
-	bltu	t0, t1, 1b
-
-	/* Fill riscv_bootparams */
-	la	t0, pagetable_l1
-	sd	t0, RISCV_BOOTPARAMS_KERN_L1PT(sp)
-	sd	s9, RISCV_BOOTPARAMS_KERN_PHYS(sp)
-
-	la	t0, initstack
-	sd	t0, RISCV_BOOTPARAMS_KERN_STACK(sp)
-
-	li	t0, (VM_EARLY_DTB_ADDRESS)
-	/* Add offset of DTB within superpage */
-	li	t1, (L2_OFFSET)
-	and	t1, a1, t1
-	add	t0, t0, t1
-	sd	t0, RISCV_BOOTPARAMS_DTBP_VIRT(sp)
-	sd	a1, RISCV_BOOTPARAMS_DTBP_PHYS(sp)
-
-	sd	a0, RISCV_BOOTPARAMS_MODULEP(sp)
-
-	mv	a0, sp
-	call	_C_LABEL(initriscv)	/* Off we go */
-	call	_C_LABEL(mi_startup)
+	move	$a0, $sp
+	bl	_C_LABEL(initloongarch) /* Off we go */
+	bl	_C_LABEL(mi_startup)
 
 	/* We should never reach here, but if so just hang. */
 2:
-	wfi
-	j	2b
+	idle	0
+	b	2b
 
 /*
- * Get the physical address the kernel is loaded to. Returned in s9.
+ * Get the physical address the kernel is loaded to. Returned in s1.
  */
 get_physmem:
-	lla	t0, virt_map	/* physical address of virt_map */
-	ld	t1, 0(t0)	/* virtual address of virt_map */
-	sub	t1, t1, t0	/* calculate phys->virt delta */
-	li	t2, KERNBASE
-	sub	s9, t2, t1	/* s9 = physmem base */
-	ret
+	la.pcrel	$t0, virt_map	/* physical address of virt_map */
+	ld.d	$t1, $t0, 0	/* virtual address of virt_map */
+	sub.d	$t1, $t1, $t0	/* calculate phys->virt delta */
+	li.d	$t2, KERNBASE
+	sub.d	$s1, $t2, $t1	/* s1 = physmem base */
+	jr	$ra
+
+/*
+ * Create L1 pagetables
+ * @parms
+ * t0: l1 address
+ * t1: l2 address
+ * t2: virtual adress
+ */
+create_pagetables_to_l1:
+	/* level 1 */
+	srli.d		$a2, $t1, PAGE_SHIFT
+
+	srli.d		$a3, $t2, L1_SHIFT
+	andi		$a3, $a3, Ln_ADDR_MASK	/* L1 index */
+
+	slli.d		$t5, $a2, PPNS		/* L1 pte */
+
+	li.d		$t6, PTE_SIZE
+	mul.d		$a3, $a3, $t6		/* L1 slot */
+	stx.d		$t5, $t0, $a3		/* save L1 pte */
+	jr		$ra
+
+/*
+ * Create L1 and L2 pagetables use 2MB huge page
+ * @parms
+ * t0: l1 address
+ * t1: l2 address
+ * t2: virtual adress
+ * t3: physical address
+ * t4: map size
+ */
+create_pagetables_to_l2:
+	/* level 1 */
+	srli.d		$a2, $t1, PAGE_SHIFT
+
+	srli.d		$a3, $t2, L1_SHIFT
+	andi		$a3, $a3, Ln_ADDR_MASK	/* L1 index */
+
+	slli.d		$t5, $a2, PPNS		/* L1 pte */
+
+	li.d		$t6, PTE_SIZE
+	mul.d		$a3, $a3, $t6		/* L1 slot */
+	stx.d		$t5, $t0, $a3		/* save L1 pte */
+
+	/* level 2 huge page  */
+	srli.d		$t5, $t2, L2_SHIFT
+	andi		$t5, $t5, Ln_ADDR_MASK	/* L2 index */
+	srli.d		$t6, $t4, L2_SHIFT	/* L2 count */
+	add.d		$t6, $t6, $t5		/* t6 => map end idex */
+
+	li.d		$a2, PMD_KERN_HUGE	/* pte entry */
+	li.d		$a3, PTE_SIZE
+	mul.d		$a4, $t5, $a3		/* L2 slot */
+	srli.d		$t4, $t3, L2_SHIFT
+1:
+	slli.d		$a3, $t4, PPNS_HUGE_2M
+	or		$a3, $a3, $a2		/* meke L2 pte */
+	stx.d		$a3, $t1, $a4		/* save L2 pte */
+
+	addi.d		$a4, $a4, PTE_SIZE	/* update l2 slot */
+	addi.d		$t4, $t4, 1		/* update physical address */
+	addi.d		$t5, $t5, 1		/* update l2 index */
+	bltu		$t5, $t6, 1b		/* build all 512 entries */
+	jr		$ra
+
+handle_tlbrefill_boot:
+	csrwr	$t0, LOONGARCH_CSR_TLBRSAVE
+	csrrd	$t0, LOONGARCH_CSR_PGD
+	lddir	$t0, $t0, 2
+	lddir	$t0, $t0, 1
+	ldpte	$t0, 0
+	ldpte	$t0, 1
+	tlbfill
+	csrrd	$t0, LOONGARCH_CSR_TLBRSAVE
+	ertn
 
 	.align  4
 initstack:
@@ -291,42 +306,51 @@ initstack:
 initstack_end:
 
 ENTRY(sigcode)
-	mv	a0, sp
-	addi	a0, a0, SF_UC
+	move    $a0, $sp
+	addi.d  $a0, $a0, SF_UC
 
 1:
-	li	t0, SYS_sigreturn
-	ecall
+        li.d    $a7, SYS_sigreturn
+        syscall	0
 
-	/* sigreturn failed, exit */
-	li	t0, SYS_exit
-	ecall
+        /* sigreturn failed, exit */
+        li.d    $a7, SYS_exit
+        syscall	0
 
-	j	1b
+        b       1b
 END(sigcode)
-	/* This may be copied to the stack, keep it 16-byte aligned */
-	.align	3
+        /* This may be copied to the stack, keep it 16-byte aligned */
+        .align  3
 esigcode:
 
-	.data
-	.align	3
-	.global	szsigcode
+        .data
+        .align  3
+        .global szsigcode
 szsigcode:
-	.quad	esigcode - sigcode
+        .quad   esigcode - sigcode
 
-	.align	12
+        .align  12
 pagetable_l1:
-	.space	PAGE_SIZE
+        .space  PAGE_SIZE
 pagetable_l2:
-	.space	PAGE_SIZE
+        .space  PAGE_SIZE
 pagetable_l2_devmap:
+        .space  PAGE_SIZE
+pagetable_id_l1:
+	.space	PAGE_SIZE
+pagetable_id_l2:
 	.space	PAGE_SIZE
 
-	.align 3
+        .align 3
+
 virt_map:
 	.quad   virt_map
-hart_lottery:
-	.space	4
+Lvirtdone:
+	.quad	virtdone
+Lbss:
+	.quad	__bss_start
+Lend:
+	.quad	_end
 
 	.globl init_pt_va
 init_pt_va:
@@ -335,7 +359,7 @@ init_pt_va:
 #ifndef SMP
 ENTRY(mpentry)
 1:
-	wfi
+	idle 	0
 	j	1b
 END(mpentry)
 #else
@@ -345,59 +369,105 @@ END(mpentry)
  * Called by a core when it is being brought online.
  */
 ENTRY(mpentry)
+
+	/* disable PG */
+	li.w		$t0, 0xa8		# PLV=0, IE=0, PG=0, DA=1
+	csrwr		$t0, LOONGARCH_CSR_CRMD
+
+	/* setup 4KB page size */
+	li.w		$t0, 0xc
+	csrwr		$t0, LOONGARCH_CSR_STLBPGSIZE
+
+	/* setup TLBIDX page size */
+	li.w		$t0, (0xc << CSR_TLBIDX_PS_SHIFT)
+	csrwr		$t0, LOONGARCH_CSR_TLBIDX
+
+	/* set TLBREHI page size */
+	li.d		$t0, 0xc
+	csrwr		$t0, LOONGARCH_CSR_TLBREHI
+
+	/* set PWCL */
+	li.d		$t0, PWCL_BOOT
+	csrwr		$t0, LOONGARCH_CSR_PWCTL0
+
+	/* set PWCH */
+	li.d		$t0, PWCH_BOOT
+	csrwr		$t0, LOONGARCH_CSR_PWCTL1
+
+	/* setup PGD */
+	la.pcrel	$t0, pagetable_l1
+	csrwr		$t0, LOONGARCH_CSR_PGDH		/* high half */
+	la.pcrel	$t0, pagetable_id_l1
+	csrwr		$t0, LOONGARCH_CSR_PGDL		/* low half identity map*/
+
+	/* setup tlbrentry */
+	la.pcrel	$t0, handle_tlbrefill_boot
+	csrwr		$t0, LOONGARCH_CSR_TLBRENTRY
+
+	/* record virtdone virt addr*/
+	la.pcrel	$t1, LSvirtdone
+	ld.d		$t5, $t1, 0
+
+	/* Enable PG */
+        li.w            $t0, 0xb0                # PLV=0, IE=0, PG=1
+        csrwr           $t0, LOONGARCH_CSR_CRMD
+        li.w            $t0, 0x04                # PLV=0, PIE=1, PWE=0
+        csrwr           $t0, LOONGARCH_CSR_PRMD
+        li.w            $t0, 0x00                # FPE=0, SXE=0, ASXE=0, BTE=0
+        csrwr           $t0, LOONGARCH_CSR_EUEN
+
+	/* setup exception */
+	csrrd		$t0, LOONGARCH_CSR_ECFG
+	li.d		$t1, ~0x70000
+	and		$t0, $t0, $t1
+	/* enable timer and ipi */
+	li.d		$t1, ((1 << IRQ_TI) | (1 << IRQ_IPI))
+	or		$t0, $t0, $t1
+	csrwr		$t0, LOONGARCH_CSR_ECFG
+
+	la.pcrel	$t0, cpu_exception_handler
+	la.pcrel	$t1, virt_map	/* physical address of virt_map */
+	ld.d		$t2, $t1, 0	/* virtual address of virt_map */
+	sub.d		$s1, $t2, $t1	/* calculate phys->virt delta */
+	add.d		$t0, $t0, $s1
+	csrwr		$t0, LOONGARCH_CSR_EENTRY
+
+	/* flush tlb (global) */
+	invtlb		0, $zero, $zero
+
+	/* jump to virtual address space */
+	jirl		$zero, $t5, 0
+
+
+svirtdone:
+
+	/* get cpuid, pass to init_secondary */
+	csrrd	$a0, LOONGARCH_CSR_CPUID
+	andi	$a0, $a0, 0x3ff
+
 	/*
-	 * Calculate the offset to __riscv_boot_ap
+	 * Calculate the offset to __loongarch_boot_ap
 	 * for the current core, cpuid is in a0.
 	 */
-	li	t1, 4
-	mulw	t1, t1, a0
+	li.w	$t1, 4
+	mul.w	$t1, $t1, $a0
 	/* Get the pointer */
-	lla	t0, __riscv_boot_ap
-	add	t0, t0, t1
+	la.pcrel	$t0, __loongarch_boot_ap
+	add.d	$t0, $t0, $t1
 
 1:
 	/* Wait the kernel to be ready */
-	lw	t1, 0(t0)
-	beqz	t1, 1b
+	ld.w	$t1, $t0, 0
+	beqz	$t1, $1b
 
 	/* Setup stack pointer */
-	lla	t0, bootstack
-	ld	sp, 0(t0)
+	la.pcrel	$t0, bootstack
+	ld.d	$sp, $t0, 0
 
-	/* Get the kernel's load address */
-	jal	get_physmem
-
-	/* Setup supervisor trap vector */
-	lla	t0, mpva
-	sub	t0, t0, s9
-	li	t1, KERNBASE
-	add	t0, t0, t1
-	csrw	stvec, t0
-
-	/* Set page tables base register */
-	lla	s2, pagetable_l1
-	srli	s2, s2, PAGE_SHIFT
-	li	t0, SATP_MODE_SV39
-	or	s2, s2, t0
-	sfence.vma
-	csrw	satp, s2
-
-	.align 2
-mpva:
-	/* Set the global pointer again, this time with the virtual address. */
-.option push
-.option norelax
-	lla	gp, __global_pointer$
-.option pop
-
-	/* Setup supervisor trap vector */
-	la	t0, cpu_exception_handler
-	csrw	stvec, t0
-
-	/* Ensure sscratch is zero */
-	li	t0, 0
-	csrw	sscratch, t0
-
-	call	init_secondary
+	bl	init_secondary
 END(mpentry)
 #endif
+
+        .align 3
+LSvirtdone:
+	.quad	svirtdone

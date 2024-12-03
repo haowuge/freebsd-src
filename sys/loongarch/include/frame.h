@@ -44,17 +44,51 @@
  * NOTE: keep this structure in sync with struct reg and struct mcontext.
  */
 struct trapframe {
-	uint64_t tf_ra;
-	uint64_t tf_sp;
-	uint64_t tf_gp;
-	uint64_t tf_tp;
-	uint64_t tf_t[7];
-	uint64_t tf_s[12];
-	uint64_t tf_a[8];
-	uint64_t tf_sepc;
-	uint64_t tf_sstatus;
-	uint64_t tf_stval;
-	uint64_t tf_scause;
+  /* general registers */
+	union {
+		uint64_t tf_regs[32];
+		struct {
+			uint64_t r0;
+			uint64_t ra;
+			uint64_t tp;
+			uint64_t sp;
+			uint64_t a[8];
+			uint64_t t[9];
+			uint64_t r21;
+			uint64_t fp;
+			uint64_t s[9];
+		} u;
+	};
+
+#define tf_a u.a
+#define tf_t u.t
+#define tf_s u.s
+#define tf_sp u.sp
+#define tf_tp u.tp
+#define tf_ra u.ra
+#define tf_fp u.fp
+
+  /* Special CSR registers. */
+  uint64_t tf_crmd;
+  uint64_t tf_prmd;
+  uint64_t tf_euen;
+  uint64_t tf_misc;
+  uint64_t tf_ecfg;
+  uint64_t tf_estat;
+  uint64_t tf_era;
+  uint64_t tf_badvaddr;
+
+	union {
+		uint64_t tf_fregs[34];
+		struct {
+			uint64_t a[8];
+			uint64_t t[16];
+			uint64_t s[8];
+			uint64_t fcsr0;
+		} uf;
+	};
+  /* Original syscal arg0 */
+  uint64_t tf_a0;
 };
 
 /*

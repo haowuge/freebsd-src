@@ -33,8 +33,6 @@
  * SUCH DAMAGE.
  */
 
-#include "opt_ddb.h"
-#include "opt_kstack_pages.h"
 #include "opt_platform.h"
 
 #include <sys/cdefs.h>
@@ -46,6 +44,7 @@
 #include <sys/cons.h>
 #include <sys/cpu.h>
 #include <sys/devmap.h>
+#include <sys/efi.h>
 #include <sys/exec.h>
 #include <sys/imgact.h>
 #include <sys/kdb.h>
@@ -89,13 +88,8 @@
 #include <machine/pcb.h>
 #include <machine/pte.h>
 #include <machine/loongarchreg.h>
-#include <machine/sbi.h>
 #include <machine/trap.h>
 #include <machine/vmparam.h>
-
-#ifdef DDB
-#include <ddb/ddb.h>
-#endif
 
 #ifdef FDT
 #include <contrib/libfdt/libfdt.h>
@@ -121,6 +115,13 @@ int64_t idcache_line_size;	/* The minimum cache line size */
 #define BOOT_HART_INVALID	0xffffffff
 uint32_t boot_hart = BOOT_HART_INVALID;	/* The hart we booted on. */
 
+/*
+ * Physical address of the EFI System Table. Stashed from the metadata hints
+ * passed into the kernel and used by the EFI code to call runtime services.
+ */
+vm_paddr_t efi_systbl_phys;
+static struct efi_map_header *efihdr;
+
 cpuset_t all_harts;
 
 extern int *end;
@@ -131,7 +132,6 @@ static void
 cpu_startup(void *dummy)
 {
 
-	sbi_print_version();
 	printcpuinfo(0);
 
 	printf("real memory  = %ju (%ju MB)\n", ptoa((uintmax_t)realmem),
@@ -173,7 +173,6 @@ SYSINIT(cpu, SI_SUB_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
 int
 cpu_idle_wakeup(int cpu)
 {
-
 	return (0);
 }
 
@@ -184,10 +183,11 @@ cpu_idle(int busy)
 	spinlock_enter();
 	if (!busy)
 		cpu_idleclock();
-	if (!sched_runnable())
-		__asm __volatile(
-		    "fence \n"
-		    "wfi   \n");
+	if (!sched_runnable()) {
+		// FIXME
+		mb();
+		__asm __volatile("idle 0");
+	}
 	if (!busy)
 		cpu_activeclock();
 	spinlock_exit();
@@ -196,16 +196,10 @@ cpu_idle(int busy)
 void
 cpu_halt(void)
 {
-
-	/*
-	 * Try to power down using the HSM SBI extension and fall back to a
-	 * simple wfi loop.
-	 */
 	intr_disable();
-	if (sbi_probe_extension(SBI_EXT_ID_HSM) != 0)
-		sbi_hsm_hart_stop();
+
 	for (;;)
-		__asm __volatile("wfi");
+		__asm __volatile("idle 0");
 	/* NOTREACHED */
 }
 
@@ -275,12 +269,14 @@ void
 makectx(struct trapframe *tf, struct pcb *pcb)
 {
 
-	memcpy(pcb->pcb_s, tf->tf_s, sizeof(tf->tf_s));
+	memcpy(pcb->pcb_regs, tf->tf_regs, sizeof(tf->tf_regs));
 
-	pcb->pcb_ra = tf->tf_sepc;
-	pcb->pcb_sp = tf->tf_sp;
-	pcb->pcb_gp = tf->tf_gp;
-	pcb->pcb_tp = tf->tf_tp;
+	pcb->pcb_era = tf->tf_era;
+	pcb->pcb_a0 = tf->tf_a0;
+	pcb->pcb_crmd = tf->tf_crmd;
+	pcb->pcb_prmd = tf->tf_prmd;
+	pcb->pcb_ecfg = tf->tf_ecfg;
+	pcb->pcb_estat = tf->tf_estat;
 }
 
 static void
@@ -292,13 +288,291 @@ init_proc0(vm_offset_t kstack)
 
 	proc_linkup0(&proc0, &thread0);
 	thread0.td_kstack = kstack;
-	thread0.td_kstack_pages = KSTACK_PAGES;
+	thread0.td_kstack_pages = kstack_pages;
 	thread0.td_pcb = (struct pcb *)(thread0.td_kstack +
 	    thread0.td_kstack_pages * PAGE_SIZE) - 1;
 	thread0.td_pcb->pcb_fpflags = 0;
 	thread0.td_frame = &proc0_tf;
 	pcpup->pc_curpcb = thread0.td_pcb;
 }
+
+typedef void (*efi_map_entry_cb)(struct efi_md *, void *argp);
+
+static void
+foreach_efi_map_entry(struct efi_map_header *efihdr, efi_map_entry_cb cb, void *argp)
+{
+	struct efi_md *map, *p;
+	size_t efisz;
+	int ndesc, i;
+
+	/*
+	 * Memory map data provided by UEFI via the GetMemoryMap
+	 * Boot Services API.
+	 */
+	efisz = (sizeof(struct efi_map_header) + 0xf) & ~0xf;
+	map = (struct efi_md *)((uint8_t *)efihdr + efisz);
+
+	if (efihdr->descriptor_size == 0)
+		return;
+	ndesc = efihdr->memory_size / efihdr->descriptor_size;
+
+	for (i = 0, p = map; i < ndesc; i++,
+	    p = efi_next_descriptor(p, efihdr->descriptor_size)) {
+		cb(p, argp);
+	}
+}
+
+/*
+ * Handle the EFI memory map list.
+ *
+ * We will make two passes at this, the first (exclude == false) to populate
+ * physmem with valid physical memory ranges from recognized map entry types.
+ * In the second pass we will exclude memory ranges from physmem which must not
+ * be used for general allocations, either because they are used by runtime
+ * firmware or otherwise reserved.
+ *
+ * Adding the runtime-reserved memory ranges to physmem and excluding them
+ * later ensures that they are included in the DMAP, but excluded from
+ * phys_avail[].
+ *
+ * Entry types not explicitly listed here are ignored and not mapped.
+ */
+static void
+handle_efi_map_entry(struct efi_md *p, void *argp)
+{
+	bool exclude = *(bool *)argp;
+
+	switch (p->md_type) {
+	case EFI_MD_TYPE_RECLAIM:
+		/*
+		 * The recomended location for ACPI tables. Map into the
+		 * DMAP so we can access them from userspace via /dev/mem.
+		 */
+	case EFI_MD_TYPE_RT_CODE:
+		/*
+		 * Some UEFI implementations put the system table in the
+		 * runtime code section. Include it in the DMAP, but will
+		 * be excluded from phys_avail.
+		 */
+	case EFI_MD_TYPE_RT_DATA:
+		/*
+		 * Runtime data will be excluded after the DMAP
+		 * region is created to stop it from being added
+		 * to phys_avail.
+		 */
+		if (exclude) {
+			physmem_exclude_region(p->md_phys,
+			    p->md_pages * EFI_PAGE_SIZE, EXFLAG_NOALLOC);
+			break;
+		}
+		/* FALLTHROUGH */
+	case EFI_MD_TYPE_CODE:
+	case EFI_MD_TYPE_DATA:
+	case EFI_MD_TYPE_BS_CODE:
+	case EFI_MD_TYPE_BS_DATA:
+	case EFI_MD_TYPE_FREE:
+		/*
+		 * We're allowed to use any entry with these types.
+		 */
+		if (!exclude)
+			physmem_hardware_region(p->md_phys,
+			    p->md_pages * EFI_PAGE_SIZE);
+		break;
+	default:
+		/* Other types shall not be handled by physmem. */
+		break;
+	}
+}
+
+static void
+add_efi_map_entries(struct efi_map_header *efihdr)
+{
+	bool exclude = false;
+	foreach_efi_map_entry(efihdr, handle_efi_map_entry, &exclude);
+}
+
+static void
+exclude_efi_map_entries(struct efi_map_header *efihdr)
+{
+	bool exclude = true;
+	foreach_efi_map_entry(efihdr, handle_efi_map_entry, &exclude);
+}
+
+static void
+print_efi_map_entry(struct efi_md *p, void *argp __unused)
+{
+	const char *type;
+	static const char *types[] = {
+		"Reserved",
+		"LoaderCode",
+		"LoaderData",
+		"BootServicesCode",
+		"BootServicesData",
+		"RuntimeServicesCode",
+		"RuntimeServicesData",
+		"ConventionalMemory",
+		"UnusableMemory",
+		"ACPIReclaimMemory",
+		"ACPIMemoryNVS",
+		"MemoryMappedIO",
+		"MemoryMappedIOPortSpace",
+		"PalCode",
+		"PersistentMemory"
+	};
+
+	if (p->md_type < nitems(types))
+		type = types[p->md_type];
+	else
+		type = "<INVALID>";
+	printf("%23s %012lx %012lx %08lx ", type, p->md_phys,
+	    p->md_virt, p->md_pages);
+	if (p->md_attr & EFI_MD_ATTR_UC)
+		printf("UC ");
+	if (p->md_attr & EFI_MD_ATTR_WC)
+		printf("WC ");
+	if (p->md_attr & EFI_MD_ATTR_WT)
+		printf("WT ");
+	if (p->md_attr & EFI_MD_ATTR_WB)
+		printf("WB ");
+	if (p->md_attr & EFI_MD_ATTR_UCE)
+		printf("UCE ");
+	if (p->md_attr & EFI_MD_ATTR_WP)
+		printf("WP ");
+	if (p->md_attr & EFI_MD_ATTR_RP)
+		printf("RP ");
+	if (p->md_attr & EFI_MD_ATTR_XP)
+		printf("XP ");
+	if (p->md_attr & EFI_MD_ATTR_NV)
+		printf("NV ");
+	if (p->md_attr & EFI_MD_ATTR_MORE_RELIABLE)
+		printf("MORE_RELIABLE ");
+	if (p->md_attr & EFI_MD_ATTR_RO)
+		printf("RO ");
+	if (p->md_attr & EFI_MD_ATTR_RT)
+		printf("RUNTIME");
+	printf("\n");
+}
+
+static void
+print_efi_map_entries(struct efi_map_header *efihdr)
+{
+
+	printf("%23s %12s %12s %8s %4s\n",
+	    "Type", "Physical", "Virtual", "#Pages", "Attr");
+	foreach_efi_map_entry(efihdr, print_efi_map_entry, NULL);
+}
+
+
+
+/*
+ * Map the passed in VA in EFI space to a void * using the efi memory table to
+ * find the PA and return it in the DMAP, if it exists. We're used between the
+ * calls to pmap_bootstrap() and physmem_init_kernel_globals() to parse CFG
+ * tables We assume that either the entry you are mapping fits within its page,
+ * or if it spills to the next page, that's contiguous in PA and in the DMAP.
+ * All observed tables obey the first part of this precondition.
+ */
+struct early_map_data
+{
+	vm_offset_t va;
+	vm_offset_t pa;
+};
+
+static void
+efi_early_map_entry(struct efi_md *p, void *argp)
+{
+	struct early_map_data *emdp = argp;
+	vm_offset_t s, e;
+
+	if (emdp->pa != 0)
+		return;
+	if ((p->md_attr & EFI_MD_ATTR_RT) == 0)
+		return;
+	s = p->md_virt;
+	e = p->md_virt + p->md_pages * EFI_PAGE_SIZE;
+	if (emdp->va < s  || emdp->va >= e)
+		return;
+	emdp->pa = p->md_phys + (emdp->va - p->md_virt);
+}
+
+static void *
+efi_early_map(vm_offset_t va)
+{
+	struct early_map_data emd = { .va = va };
+
+	foreach_efi_map_entry(efihdr, efi_early_map_entry, &emd);
+	if (emd.pa == 0)
+		return NULL;
+	return (void *)PHYS_TO_DMAP(emd.pa);
+}
+
+
+/*
+ * When booted via kboot, the prior kernel will pass in reserved memory areas in
+ * a EFI config table. We need to find that table and walk through it excluding
+ * the memory ranges in it. btw, this is called too early for the printf to do
+ * anything since msgbufp isn't initialized, let alone a console...
+ */
+static void
+exclude_efi_memreserve(vm_offset_t efi_systbl_phys)
+{
+	struct efi_systbl *systbl;
+	struct uuid efi_memreserve = LINUX_EFI_MEMRESERVE_TABLE;
+
+	systbl = (struct efi_systbl *)PHYS_TO_DMAP(efi_systbl_phys);
+	if (systbl == NULL) {
+		printf("can't map systbl\n");
+		return;
+	}
+	if (systbl->st_hdr.th_sig != EFI_SYSTBL_SIG) {
+		printf("Bad signature for systbl %#lx\n", systbl->st_hdr.th_sig);
+		return;
+	}
+
+	/*
+	 * We don't yet have the pmap system booted enough to create a pmap for
+	 * the efi firmware's preferred address space from the GetMemoryMap()
+	 * table. The st_cfgtbl is a VA in this space, so we need to do the
+	 * mapping ourselves to a kernel VA with efi_early_map. We assume that
+	 * the cfgtbl entries don't span a page. Other pointers are PAs, as
+	 * noted below.
+	 */
+	if (systbl->st_cfgtbl == 0)	/* Failsafe st_entries should == 0 in this case */
+		return;
+	for (int i = 0; i < systbl->st_entries; i++) {
+		struct efi_cfgtbl *cfgtbl;
+		struct linux_efi_memreserve *mr;
+
+		cfgtbl = efi_early_map(systbl->st_cfgtbl + i * sizeof(*cfgtbl));
+		if (cfgtbl == NULL)
+			panic("Can't map the config table entry %d\n", i);
+		if (memcmp(&cfgtbl->ct_uuid, &efi_memreserve, sizeof(struct uuid)) != 0)
+			continue;
+
+		/*
+		 * cfgtbl points are either VA or PA, depending on the GUID of
+		 * the table. memreserve GUID pointers are PA and not converted
+		 * after a SetVirtualAddressMap(). The list's mr_next pointer
+		 * is also a PA.
+		 */
+		mr = (struct linux_efi_memreserve *)PHYS_TO_DMAP(
+			(vm_offset_t)cfgtbl->ct_data);
+		while (true) {
+			for (int j = 0; j < mr->mr_count; j++) {
+				struct linux_efi_memreserve_entry *mre;
+
+				mre = &mr->mr_entry[j];
+				physmem_exclude_region(mre->mre_base, mre->mre_size,
+				    EXFLAG_NODUMP | EXFLAG_NOALLOC);
+			}
+			if (mr->mr_next == 0)
+				break;
+			mr = (struct linux_efi_memreserve *)PHYS_TO_DMAP(mr->mr_next);
+		};
+	}
+
+}
+
 
 #ifdef FDT
 static void
@@ -345,7 +619,7 @@ cache_setup(void)
  * Fake up a boot descriptor table.
  */
 static void
-fake_preload_metadata(struct riscv_bootparams *rvbp)
+fake_preload_metadata(struct loongarch_bootparams *bp)
 {
 	static uint32_t fake_preload[48];
 	vm_offset_t lastaddr;
@@ -386,8 +660,8 @@ fake_preload_metadata(struct riscv_bootparams *rvbp)
 	PRELOAD_PUSH_VALUE(uint32_t, MODINFO_METADATA | MODINFOMD_DTBP);
 	PRELOAD_PUSH_VALUE(uint32_t, sizeof(vm_offset_t));
 	PRELOAD_PUSH_VALUE(vm_offset_t, lastaddr);
-	dtb_size = fdt_totalsize(rvbp->dtbp_virt);
-	memmove((void *)lastaddr, (const void *)rvbp->dtbp_virt, dtb_size);
+	dtb_size = fdt_totalsize(bp->dtbp_virt);
+	memmove((void *)lastaddr, (const void *)bp->dtbp_virt, dtb_size);
 	lastaddr = roundup(lastaddr + dtb_size, sizeof(int));
 
 	PRELOAD_PUSH_VALUE(uint32_t, MODINFO_METADATA | MODINFOMD_KERNEND);
@@ -404,18 +678,18 @@ fake_preload_metadata(struct riscv_bootparams *rvbp)
 	preload_metadata = (caddr_t)fake_preload;
 
 	/* Check if bootloader clobbered part of the kernel with the DTB. */
-	KASSERT(rvbp->dtbp_phys + dtb_size <= rvbp->kern_phys ||
-		rvbp->dtbp_phys >= rvbp->kern_phys + (lastaddr - KERNBASE),
-	    ("FDT (%lx-%lx) and kernel (%lx-%lx) overlap", rvbp->dtbp_phys,
-		rvbp->dtbp_phys + dtb_size, rvbp->kern_phys,
-		rvbp->kern_phys + (lastaddr - KERNBASE)));
+	KASSERT(bp->dtbp_phys + dtb_size <= bp->kern_phys ||
+		bp->dtbp_phys >= bp->kern_phys + (lastaddr - KERNBASE),
+	    ("FDT (%lx-%lx) and kernel (%lx-%lx) overlap", bp->dtbp_phys,
+		bp->dtbp_phys + dtb_size, bp->kern_phys,
+		bp->kern_phys + (lastaddr - KERNBASE)));
 	KASSERT(fake_size < sizeof(fake_preload),
 	    ("Too many fake_preload items"));
 
 	if (boothowto & RB_VERBOSE)
 		printf("FDT phys (%lx-%lx), kernel phys (%lx-%lx)\n",
-		    rvbp->dtbp_phys, rvbp->dtbp_phys + dtb_size,
-		    rvbp->kern_phys, rvbp->kern_phys + (lastaddr - KERNBASE));
+		    bp->dtbp_phys, bp->dtbp_phys + dtb_size,
+		    bp->kern_phys, bp->kern_phys + (lastaddr - KERNBASE));
 }
 
 /* Support for FDT configurations only. */
@@ -461,7 +735,7 @@ parse_metadata(void)
 #ifdef DDB
 	ksym_start = MD_FETCH(kmdp, MODINFOMD_SSYM, uintptr_t);
 	ksym_end = MD_FETCH(kmdp, MODINFOMD_ESYM, uintptr_t);
-	db_fetch_ksymtab(ksym_start, ksym_end, 0);
+	db_fetch_ksymtab(ksym_start, ksym_end);
 #endif
 #ifdef FDT
 	try_load_dtb(kmdp);
@@ -472,18 +746,20 @@ parse_metadata(void)
 }
 
 void
-initriscv(struct riscv_bootparams *rvbp)
+initloongarch(struct loongarch_bootparams *bp)
 {
 	struct mem_region mem_regions[FDT_MEM_REGIONS];
-	struct pcpu *pcpup;
 	int mem_regions_sz;
+	struct pcpu *pcpup;
 	vm_offset_t lastaddr;
 	vm_size_t kernlen;
-#ifdef FDT
-	phandle_t chosen;
-	uint32_t hart;
-#endif
 	char *env;
+#if 0
+	struct efi_fb *efifb;
+#endif
+	caddr_t kmdp;
+
+	printf("in %s\n", __func__);
 
 	TSRAW(&thread0, TS_ENTER, __func__, NULL);
 
@@ -492,38 +768,41 @@ initriscv(struct riscv_bootparams *rvbp)
 	pcpu_init(pcpup, 0, sizeof(struct pcpu));
 
 	/* Set the pcpu pointer */
-	__asm __volatile("mv tp, %0" :: "r"(pcpup));
+	__asm __volatile("move $r21, %0" :: "r"(pcpup));
 
 	PCPU_SET(curthread, &thread0);
 
-	/* Initialize SBI interface. */
-	sbi_init();
-
 	/* Parse the boot metadata. */
-	if (rvbp->modulep != 0) {
-		preload_metadata = (caddr_t)rvbp->modulep;
+	if (bp->modulep != 0) {
+		preload_metadata = (caddr_t)bp->modulep;
 	} else {
-		fake_preload_metadata(rvbp);
+		fake_preload_metadata(bp);
 	}
 	lastaddr = parse_metadata();
 
-#ifdef FDT
-	/*
-	 * Look for the boot hart ID. This was either passed in directly from
-	 * the SBI firmware and handled by locore, or was stored in the device
-	 * tree by an earlier boot stage.
-	 */
-	chosen = OF_finddevice("/chosen");
-	if (OF_getencprop(chosen, "boot-hartid", &hart, sizeof(hart)) != -1) {
-		boot_hart = hart;
-	}
-#endif
-	if (boot_hart == BOOT_HART_INVALID) {
-		panic("Boot hart ID was not properly set");
-	}
-	pcpup->pc_hart = boot_hart;
+	/* set boot cpu id to 0 */
+	boot_hart = 0;
 
+	kmdp = preload_search_by_type("elf kernel");
+	if (kmdp == NULL)
+		kmdp = preload_search_by_type("elf64 kernel");
+
+	efi_systbl_phys = MD_FETCH(kmdp, MODINFOMD_FW_HANDLE, vm_paddr_t);
+
+	/* Load the physical memory ranges */
+	efihdr = (struct efi_map_header *)preload_search_info(kmdp,
+	    MODINFO_METADATA | MODINFOMD_EFI_MAP);
+	if (efihdr != NULL)
+		add_efi_map_entries(efihdr);
 #ifdef FDT
+	else {
+		/* Grab physical memory regions information from device tree. */
+		if (fdt_get_mem_regions(mem_regions, &mem_regions_sz, NULL) != 0) {
+			panic("Cannot get physical memory regions");
+		}
+		physmem_hardware_regions(mem_regions, mem_regions_sz);
+	}
+
 	/*
 	 * Exclude reserved memory specified by the device tree. Typically,
 	 * this contains an entry for memory used by the runtime SBI firmware.
@@ -532,14 +811,17 @@ initriscv(struct riscv_bootparams *rvbp)
 		physmem_exclude_regions(mem_regions, mem_regions_sz,
 		    EXFLAG_NODUMP | EXFLAG_NOALLOC);
 	}
-
-	/* Grab physical memory regions information from device tree. */
-	if (fdt_get_mem_regions(mem_regions, &mem_regions_sz, NULL) != 0) {
-		panic("Cannot get physical memory regions");
-	}
-	physmem_hardware_regions(mem_regions, mem_regions_sz);
 #endif
 
+// FIXME
+#if 0
+	/* Exclude the EFI framebuffer from our view of physical memory. */
+	efifb = (struct efi_fb *)preload_search_info(kmdp,
+	    MODINFO_METADATA | MODINFOMD_EFI_FB);
+	if (efifb != NULL)
+		physmem_exclude_region(efifb->fb_addr, efifb->fb_size,
+		    EXFLAG_NOALLOC);
+#endif
 	/*
 	 * Identify CPU/ISA features.
 	 */
@@ -550,22 +832,16 @@ initriscv(struct riscv_bootparams *rvbp)
 
 	cache_setup();
 
-#ifdef FDT
-	/*
-	 * XXX: Unconditionally exclude the lowest 2MB of physical memory, as
-	 * this area is assumed to contain the SBI firmware. This is a little
-	 * fragile, but it is consistent with the platforms we support so far.
-	 *
-	 * TODO: remove this when the all regular booting methods properly
-	 * report their reserved memory in the device tree.
-	 */
-	physmem_exclude_region(mem_regions[0].mr_start, L2_SIZE,
-	    EXFLAG_NODUMP | EXFLAG_NOALLOC);
-#endif
-
 	/* Bootstrap enough of pmap to enter the kernel proper */
 	kernlen = (lastaddr - KERNBASE);
-	pmap_bootstrap(rvbp->kern_l1pt, rvbp->kern_phys, kernlen);
+	pmap_bootstrap(bp->kern_l1pt, bp->kern_phys, kernlen);
+
+	/* Exclude entries needed in the DMAP region, but not phys_avail */
+	if (efihdr != NULL)
+		exclude_efi_map_entries(efihdr);
+	/*  Do the same for reserve entries in the EFI MEMRESERVE table */
+	if (efi_systbl_phys != 0)
+		exclude_efi_memreserve(efi_systbl_phys);
 
 	physmem_init_kernel_globals();
 
@@ -582,7 +858,7 @@ initriscv(struct riscv_bootparams *rvbp)
 	if (getenv_is_true("debug.dump_modinfo_at_boot"))
 		preload_dump();
 
-	init_proc0(rvbp->kern_stack);
+	init_proc0(bp->kern_stack);
 
 	msgbufinit(msgbufp, msgbufsize);
 	mutex_init();
@@ -601,10 +877,6 @@ initriscv(struct riscv_bootparams *rvbp)
 		physmem_print_tables();
 
 	early_boot = 0;
-
-	if (bootverbose && kstack_pages != KSTACK_PAGES)
-		printf("kern.kstack_pages = %d ignored for thread0\n",
-		    kstack_pages);
 
 	TSEXIT();
 }
