@@ -191,8 +191,8 @@ retry:
 
 		/* l2 may be a superpage */
 		l2e = atomic_load_64(l2);
-		if ((l2e & PTE_RWX) != 0) {
-			pa = (l2e >> PTE_PPN1_S) << L2_SHIFT;
+		if (PTE_RWX(l2e)) {
+			pa = (l2e >> L2_SHIFT) << L2_SHIFT;
 			for (i = 0; i < Ln_ENTRIES; i++, pa += PAGE_SIZE) {
 				if (vm_phys_is_dumpable(pa))
 					vm_page_dump_add(state->dump_bitset,
@@ -203,7 +203,7 @@ retry:
 				l3e = atomic_load_64(&l3[i]);
 				if ((l3e & PTE_V) == 0)
 					continue;
-				pa = (l3e >> PTE_PPN0_S) * PAGE_SIZE;
+				pa = (l3e >> L3_SHIFT) * PAGE_SIZE;
 				if (PHYS_IN_DMAP(pa) && vm_phys_is_dumpable(pa))
 					vm_page_dump_add(state->dump_bitset,
 					    pa);
@@ -294,10 +294,10 @@ retry:
 		}
 
 		l2e = atomic_load_64(l2);
-		if ((l2e & PTE_RWX) != 0) {
+		if (PTE_RWX(l2e)) {
 			/* Generate fake l3 entries based on the l2 superpage */
 			for (i = 0; i < Ln_ENTRIES; i++) {
-				tmpbuffer[i] = (l2e | (i << PTE_PPN0_S));
+				tmpbuffer[i] = (l2e | (i << L2_SHIFT));
 			}
 			/* We always write a page, even if it is zero */
 			error = blk_write(di, (char *)&tmpbuffer, 0, PAGE_SIZE);
@@ -309,7 +309,7 @@ retry:
 				goto fail;
 			bzero(&tmpbuffer, sizeof(tmpbuffer));
 		} else {
-			pa = (l2e >> PTE_PPN0_S) * PAGE_SIZE;
+			pa = (l2e >> L2_SHIFT) * PAGE_SIZE;
 
 			/*
 			 * We always write a page, even if it is zero. If pa

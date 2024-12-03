@@ -36,6 +36,6 @@
 	.text
 	.align	2
 
-ENTRY(riscv_nullop)
-	ret
-END(riscv_nullop)
+ENTRY(loongarch_nullop)
+	jr	$ra
+END(loongarch_nullop)

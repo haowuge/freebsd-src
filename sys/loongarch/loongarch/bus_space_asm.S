@@ -34,49 +34,49 @@
 
 #include <machine/asm.h>
 ENTRY(generic_bs_r_1)
-	add	a3, a1, a2
-	lbu	a0, 0(a3)
-	ret
+	add.d	$a3, $a1, $a2
+	ld.bu	$a0, $a3, 0
+	jr 	$ra
 END(generic_bs_r_1)
 
 ENTRY(generic_bs_r_2)
-	add	a3, a1, a2
-	lhu	a0, 0(a3)
-	ret
+	add.d	$a3, $a1, $a2
+	ld.hu	$a0, $a3, 0
+	jr 	$ra
 END(generic_bs_r_2)
 
 ENTRY(generic_bs_r_4)
-	add	a3, a1, a2
-	lw	a0, 0(a3)
-	ret
+	add.d	$a3, $a1, $a2
+	ld.wu	$a0, $a3, 0
+	jr 	$ra
 END(generic_bs_r_4)
 
 ENTRY(generic_bs_r_8)
-	add	a3, a1, a2
-	ld	a0, 0(a3)
-	ret
+	add.d	$a3, $a1, $a2
+	ld.d	$a0, $a3, 0
+	jr 	$ra
 END(generic_bs_r_8)
 
 ENTRY(generic_bs_w_1)
-	add	a4, a1, a2
-	sb	a3, 0(a4)
-	ret
+	add.d	$a4, $a1, $a2
+	st.b	$a3, $a4, 0
+	jr 	$ra
 END(generic_bs_w_1)
 
 ENTRY(generic_bs_w_2)
-	add	a4, a1, a2
-	sh	a3, 0(a4)
-	ret
+	add.d	$a4, $a1, $a2
+	st.h	$a3, $a4, 0
+	jr 	$ra
 END(generic_bs_w_2)
 
 ENTRY(generic_bs_w_4)
-	add	a4, a1, a2
-	sw	a3, 0(a4)
-	ret
+	add.d	$a4, $a1, $a2
+	st.w	$a3, $a4, 0
+	jr	$ra
 END(generic_bs_w_4)
 
 ENTRY(generic_bs_w_8)
-	add	a4, a1, a2
-	sd	a3, 0(a4)
-	ret
+	add.d	$a4, $a1, $a2
+	st.d	$a3, $a4, 0
+	jr 	$ra
 END(generic_bs_w_8)

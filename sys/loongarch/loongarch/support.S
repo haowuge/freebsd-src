@@ -42,100 +42,102 @@
  * One of the fu* or su* functions failed, return -1.
  */
 ENTRY(fsu_fault)
-	SET_FAULT_HANDLER(x0, a1)	/* Reset the handler function */
-	EXIT_USER_ACCESS(a1)
+	SET_FAULT_HANDLER($zero, $a1)	/* Reset the handler function */
+	EXIT_USER_ACCESS($a1)
 fsu_fault_nopcb:
-	li	a0, -1
-	ret
+	li.d	$a0, -1
+	jr	$ra
 END(fsu_fault)
 
 /*
  * int casueword32(volatile uint32_t *, uint32_t, uint32_t *, uint32_t)
  */
 ENTRY(casueword32)
-	li	a4, (VM_MAXUSER_ADDRESS-3)
-	bgeu	a0, a4, fsu_fault_nopcb
-	la	a6, fsu_fault		/* Load the fault handler */
-	SET_FAULT_HANDLER(a6, a4)	/* And set it */
-	ENTER_USER_ACCESS(a4)
-	lr.w	a4, 0(a0)		/* Load-exclusive the data */
-	bne	a4, a1, 1f		/* If not equal then exit */
-	sc.w	a5, a3, 0(a0)		/* Store the new data */
-	beqz	a5, 2f			/* Success */
-1:	li	a5, 1			/* Normalize failure result */
-2:	EXIT_USER_ACCESS(a6)
-	SET_FAULT_HANDLER(x0, a6)	/* Reset the fault handler */
-	sw	a4, 0(a2)		/* Store the read data */
-	mv	a0, a5			/* Success indicator */
-	ret				/* Return */
+	li.d	$a4, (VM_MAXUSER_ADDRESS-3)
+	bgeu	$a0, $a4, fsu_fault_nopcb
+	li.d	$a6, fsu_fault		/* Load the fault handler */
+	SET_FAULT_HANDLER($a6, $a4)	/* And set it */
+	ENTER_USER_ACCESS($a4)
+	ll.w	$a4, $a0, 0		/* Load-exclusive the data */
+	bne	$a4, $a1, 1f		/* If not equal then exit */
+	sc.w	$a3, $a0, 0		/* Store the new data */
+	move	$a5, $a3
+	bnez	$a5, 2f			/* Success */
+1:	li.w	$a5, 1			/* Normalize failure result */
+2:	EXIT_USER_ACCESS($a6)
+	SET_FAULT_HANDLER($zero, $a6)	/* Reset the fault handler */
+	st.w	$a4, $a2, 0		/* Store the read data */
+	li.d	$a0, 0			/* Success indicator */
+	jr	$ra			/* Return */
 END(casueword32)
 
 /*
  * int casueword(volatile u_long *, u_long, u_long *, u_long)
  */
 ENTRY(casueword)
-	li	a4, (VM_MAXUSER_ADDRESS-7)
-	bgeu	a0, a4, fsu_fault_nopcb
-	la	a6, fsu_fault		/* Load the fault handler */
-	SET_FAULT_HANDLER(a6, a4)	/* And set it */
-	ENTER_USER_ACCESS(a4)
-	lr.d	a4, 0(a0)		/* Load-exclusive the data */
-	bne	a4, a1, 1f		/* If not equal then exit */
-	sc.d	a5, a3, 0(a0)		/* Store the new data */
-	beqz	a5, 2f			/* Success */
-1:	li	a5, 1			/* Normalize failure result */
-2:	EXIT_USER_ACCESS(a6)
-	SET_FAULT_HANDLER(x0, a6)	/* Reset the fault handler */
-	sd	a4, 0(a2)		/* Store the read data */
-	mv	a0, a5			/* Success indicator */
-	ret				/* Return */
+	li.d	$a4, (VM_MAXUSER_ADDRESS-7)
+	bgeu	$a0, $a4, fsu_fault_nopcb
+	li.d	$a6, fsu_fault		/* Load the fault handler */
+	SET_FAULT_HANDLER($a6, $a4)	/* And set it */
+	ENTER_USER_ACCESS($a4)
+	ll.d	$a4, $a0, 0		/* Load-exclusive the data */
+	bne	$a4, $a1, 1f		/* If not equal then exit */
+	sc.d	$a3, $a0, 0		/* Store the new data */
+	move	$a5, $a3
+	bnez	$a5, 2f			/* Success */
+1:	li.d	$a5, 1			/* Normalize failure result */
+2:	EXIT_USER_ACCESS($a6)
+	SET_FAULT_HANDLER($zero, $a6)	/* Reset the fault handler */
+	st.d	$a4, $a2, 0		/* Store the read data */
+	li.d	$a0, 0			/* Success indicator */
+	jr	$ra			/* Return */
 END(casueword)
 
 /*
  * int fubyte(volatile const void *)
  */
 ENTRY(fubyte)
-	li	a1, VM_MAXUSER_ADDRESS
-	bgeu	a0, a1, fsu_fault_nopcb
-	la	a6, fsu_fault		/* Load the fault handler */
-	SET_FAULT_HANDLER(a6, a1)	/* And set it */
-	ENTER_USER_ACCESS(a1)
-	lbu	a0, 0(a0)		/* Try loading the data */
-	EXIT_USER_ACCESS(a1)
-	SET_FAULT_HANDLER(x0, a1)	/* Reset the fault handler */
-	ret				/* Return */
+	li.d	$a1, VM_MAXUSER_ADDRESS
+	bgeu	$a0, $a1, fsu_fault_nopcb
+	li.d	$a6, fsu_fault		/* Load the fault handler */
+	SET_FAULT_HANDLER($a6, $a1)	/* And set it */
+	ENTER_USER_ACCESS($a1)
+	ld.bu	$a0, $a0, 0		/* Try loading the data */
+	EXIT_USER_ACCESS($a1)
+	SET_FAULT_HANDLER($zero, $a1)	/* Reset the fault handler */
+	jr	$ra			/* Return */
 END(fubyte)
 
 /*
  * int fuword(volatile const void *)
  */
 ENTRY(fuword16)
-	li	a1, (VM_MAXUSER_ADDRESS-1)
-	bgeu	a0, a1, fsu_fault_nopcb
-	la	a6, fsu_fault		/* Load the fault handler */
-	SET_FAULT_HANDLER(a6, a1)	/* And set it */
-	ENTER_USER_ACCESS(a1)
-	lhu	a0, 0(a0)		/* Try loading the data */
-	EXIT_USER_ACCESS(a1)
-	SET_FAULT_HANDLER(x0, a1)	/* Reset the fault handler */
-	ret				/* Return */
+	li.d	$a1, (VM_MAXUSER_ADDRESS-1)
+	bgeu	$a0, $a1, fsu_fault_nopcb
+	li.d	$a6, fsu_fault		/* Load the fault handler */
+	SET_FAULT_HANDLER($a6, $a1)	/* And set it */
+	ENTER_USER_ACCESS($a1)
+	ld.hu	$a0, $a0, 0		/* Try loading the data */
+	EXIT_USER_ACCESS($a1)
+	SET_FAULT_HANDLER($zero, $a1)	/* Reset the fault handler */
+	jr	$ra			/* Return */
 END(fuword16)
 
 /*
  * int32_t fueword32(volatile const void *, int32_t *)
  */
 ENTRY(fueword32)
-	li	a2, (VM_MAXUSER_ADDRESS-3)
-	bgeu	a0, a2, fsu_fault_nopcb
-	la	a6, fsu_fault		/* Load the fault handler */
-	SET_FAULT_HANDLER(a6, a2)	/* And set it */
-	ENTER_USER_ACCESS(a2)
-	lw	a0, 0(a0)		/* Try loading the data */
-	EXIT_USER_ACCESS(a2)
-	SET_FAULT_HANDLER(x0, a2)	/* Reset the fault handler */
-	sw	a0, 0(a1)		/* Save the data in kernel space */
-	li	a0, 0			/* Success */
-	ret				/* Return */
+	li.d	$a2, (VM_MAXUSER_ADDRESS-3)
+	bgeu	$a0, $a2, fsu_fault_nopcb
+	li.d	$a6, fsu_fault		/* Load the fault handler */
+	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
+	ENTER_USER_ACCESS($a2)
+	ld.w	$a0, $a0, 0		/* Try loading the data */
+	EXIT_USER_ACCESS($a2)
+	SET_FAULT_HANDLER($zero, $a2)	/* Reset the fault handler */
+	st.w	$a0, $a1, 0		/* Save the data in kernel space */
+	li.d	$a0, 0			/* Success */
+	jr	$ra			/* Return */
 END(fueword32)
 
 /*
@@ -144,17 +146,17 @@ END(fueword32)
  */
 ENTRY(fueword)
 EENTRY(fueword64)
-	li	a2, (VM_MAXUSER_ADDRESS-7)
-	bgeu	a0, a2, fsu_fault_nopcb
-	la	a6, fsu_fault		/* Load the fault handler */
-	SET_FAULT_HANDLER(a6, a2)	/* And set it */
-	ENTER_USER_ACCESS(a2)
-	ld	a0, 0(a0)		/* Try loading the data */
-	EXIT_USER_ACCESS(a2)
-	SET_FAULT_HANDLER(x0, a2)	/* Reset the fault handler */
-	sd	a0, 0(a1)		/* Save the data in kernel space */
-	li	a0, 0			/* Success */
-	ret				/* Return */
+	li.d	$a2, (VM_MAXUSER_ADDRESS-7)
+	bgeu	$a0, $a2, fsu_fault_nopcb
+	li.d	$a6, fsu_fault		/* Load the fault handler */
+	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
+	ENTER_USER_ACCESS($a2)
+	ld.d	$a0, $a0, 0		/* Try loading the data */
+	EXIT_USER_ACCESS($a2)
+	SET_FAULT_HANDLER($zero, $a2)	/* Reset the fault handler */
+	st.d	$a0, $a1, 0		/* Save the data in kernel space */
+	li.d	$a0, 0			/* Success */
+	jr	$ra			/* Return */
 EEND(fueword64)
 END(fueword)
 
@@ -162,48 +164,48 @@ END(fueword)
  * int subyte(volatile void *, int)
  */
 ENTRY(subyte)
-	li	a2, VM_MAXUSER_ADDRESS
-	bgeu	a0, a2, fsu_fault_nopcb
-	la	a6, fsu_fault		/* Load the fault handler */
-	SET_FAULT_HANDLER(a6, a2)	/* And set it */
-	ENTER_USER_ACCESS(a2)
-	sb	a1, 0(a0)		/* Try storing the data */
-	EXIT_USER_ACCESS(a2)
-	SET_FAULT_HANDLER(x0, a2)	/* Reset the fault handler */
-	li	a0, 0			/* Success */
-	ret				/* Return */
+	li.d	$a2, VM_MAXUSER_ADDRESS
+	bgeu	$a0, $a2, fsu_fault_nopcb
+	li.d	$a6, fsu_fault		/* Load the fault handler */
+	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
+	ENTER_USER_ACCESS($a2)
+	st.b	$a1, $a0, 0		/* Try storing the data */
+	EXIT_USER_ACCESS($a2)
+	SET_FAULT_HANDLER($zero, $a2)	/* Reset the fault handler */
+	li.d	$a0, 0			/* Success */
+	jr	$ra			/* Return */
 END(subyte)
 
 /*
  * int suword16(volatile void *, int)
  */
 ENTRY(suword16)
-	li	a2, (VM_MAXUSER_ADDRESS-1)
-	bgeu	a0, a2, fsu_fault_nopcb
-	la	a6, fsu_fault		/* Load the fault handler */
-	SET_FAULT_HANDLER(a6, a2)	/* And set it */
-	ENTER_USER_ACCESS(a2)
-	sh	a1, 0(a0)		/* Try storing the data */
-	EXIT_USER_ACCESS(a2)
-	SET_FAULT_HANDLER(x0, a2)	/* Reset the fault handler */
-	li	a0, 0			/* Success */
-	ret				/* Return */
+	li.d	$a2, (VM_MAXUSER_ADDRESS-1)
+	bgeu	$a0, $a2, fsu_fault_nopcb
+	li.d	$a6, fsu_fault		/* Load the fault handler */
+	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
+	ENTER_USER_ACCESS($a2)
+	st.h	$a1, $a0, 0		/* Try storing the data */
+	EXIT_USER_ACCESS($a2)
+	SET_FAULT_HANDLER($zero, $a2)	/* Reset the fault handler */
+	li.d	$a0, 0			/* Success */
+	jr	$ra			/* Return */
 END(suword16)
 
 /*
  * int suword32(volatile void *, int)
  */
 ENTRY(suword32)
-	li	a2, (VM_MAXUSER_ADDRESS-3)
-	bgeu	a0, a2, fsu_fault_nopcb
-	la	a6, fsu_fault		/* Load the fault handler */
-	SET_FAULT_HANDLER(a6, a2)	/* And set it */
-	ENTER_USER_ACCESS(a2)
-	sw	a1, 0(a0)		/* Try storing the data */
-	EXIT_USER_ACCESS(a2)
-	SET_FAULT_HANDLER(x0, a2)	/* Reset the fault handler */
-	li	a0, 0			/* Success */
-	ret				/* Return */
+	li.d	$a2, (VM_MAXUSER_ADDRESS-3)
+	bgeu	$a0, $a2, fsu_fault_nopcb
+	li.d	$a6, fsu_fault		/* Load the fault handler */
+	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
+	ENTER_USER_ACCESS($a2)
+	st.w	$a1, $a0, 0		/* Try storing the data */
+	EXIT_USER_ACCESS($a2)
+	SET_FAULT_HANDLER($zero, $a2)	/* Reset the fault handler */
+	li.d	$a0, 0			/* Success */
+	jr	$ra			/* Return */
 END(suword32)
 
 /*
@@ -211,65 +213,59 @@ END(suword32)
  */
 ENTRY(suword)
 EENTRY(suword64)
-	li	a2, (VM_MAXUSER_ADDRESS-7)
-	bgeu	a0, a2, fsu_fault_nopcb
-	la	a6, fsu_fault		/* Load the fault handler */
-	SET_FAULT_HANDLER(a6, a2)	/* And set it */
-	ENTER_USER_ACCESS(a2)
-	sd	a1, 0(a0)		/* Try storing the data */
-	EXIT_USER_ACCESS(a2)
-	SET_FAULT_HANDLER(x0, a2)	/* Reset the fault handler */
-	li	a0, 0			/* Success */
-	ret				/* Return */
+	li.d	$a2, (VM_MAXUSER_ADDRESS-7)
+	bgeu	$a0, $a2, fsu_fault_nopcb
+	li.d	$a6, fsu_fault		/* Load the fault handler */
+	SET_FAULT_HANDLER($a6, $a2)	/* And set it */
+	ENTER_USER_ACCESS($a2)
+	st.d	$a1, $a0, 0		/* Try storing the data */
+	EXIT_USER_ACCESS($a2)
+	SET_FAULT_HANDLER($zero, $a2)	/* Reset the fault handler */
+	li.d	$a0, 0			/* Success */
+	jr	$ra			/* Return */
 EEND(suword64)
 END(suword)
 
 ENTRY(setjmp)
 	/* Store the stack pointer */
-	sd	sp, 0(a0)
-	addi	a0, a0, 8
+	st.d	$sp, $a0, 0
+	addi.d	$a0, $a0, 8
 
 	/* Store the general purpose registers and ra */
-	sd	s0, (0 * 8)(a0)
-	sd	s1, (1 * 8)(a0)
-	sd	s2, (2 * 8)(a0)
-	sd	s3, (3 * 8)(a0)
-	sd	s4, (4 * 8)(a0)
-	sd	s5, (5 * 8)(a0)
-	sd	s6, (6 * 8)(a0)
-	sd	s7, (7 * 8)(a0)
-	sd	s8, (8 * 8)(a0)
-	sd	s9, (9 * 8)(a0)
-	sd	s10, (10 * 8)(a0)
-	sd	s11, (11 * 8)(a0)
-	sd	ra, (12 * 8)(a0)
+	st.d	$s0, $a0, (0 * 8)
+	st.d	$s1, $a0, (1 * 8)
+	st.d	$s2, $a0, (2 * 8)
+	st.d	$s3, $a0, (3 * 8)
+	st.d	$s4, $a0, (4 * 8)
+	st.d	$s5, $a0, (5 * 8)
+	st.d	$s6, $a0, (6 * 8)
+	st.d	$s7, $a0, (7 * 8)
+	st.d	$s8, $a0, (8 * 8)
+	st.d	$ra, $a0, (9 * 8)
 
 	/* Return value */
-	li	a0, 0
-	ret
+	li.d	$a0, 0
+	jr	$ra
 END(setjmp)
 
 ENTRY(longjmp)
 	/* Restore the stack pointer */
-	ld	sp, 0(a0)
-	addi	a0, a0, 8
+	ld.d	$sp, $a0, 0
+	addi.d	$a0, $a0, 8
 
 	/* Restore the general purpose registers and ra */
-	ld	s0, (0 * 8)(a0)
-	ld	s1, (1 * 8)(a0)
-	ld	s2, (2 * 8)(a0)
-	ld	s3, (3 * 8)(a0)
-	ld	s4, (4 * 8)(a0)
-	ld	s5, (5 * 8)(a0)
-	ld	s6, (6 * 8)(a0)
-	ld	s7, (7 * 8)(a0)
-	ld	s8, (8 * 8)(a0)
-	ld	s9, (9 * 8)(a0)
-	ld	s10, (10 * 8)(a0)
-	ld	s11, (11 * 8)(a0)
-	ld	ra, (12 * 8)(a0)
+	ld.d	$s0, $a0, (0 * 8)
+	ld.d	$s1, $a0, (1 * 8)
+	ld.d	$s2, $a0, (2 * 8)
+	ld.d	$s3, $a0, (3 * 8)
+	ld.d	$s4, $a0, (4 * 8)
+	ld.d	$s5, $a0, (5 * 8)
+	ld.d	$s6, $a0, (6 * 8)
+	ld.d	$s7, $a0, (7 * 8)
+	ld.d	$s8, $a0, (8 * 8)
+	ld.d	$ra, $a0, (9 * 8)
 
 	/* Load the return value */
-	mv	a0, a1
-	ret
+	move	$a0, $a1
+	jr	$ra
 END(longjmp)

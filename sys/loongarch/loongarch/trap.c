@@ -74,7 +74,8 @@
 #include <ddb/db_sym.h>
 #endif
 
-void intr_irq_handler(struct trapframe *tf);
+
+#define EXC_CODE(estat) ((estat & CSR_ESTAT_EXC) >> CSR_ESTAT_EXC_SHIFT)
 
 int (*dtrace_invop_jump_addr)(struct trapframe *);
 
@@ -117,7 +118,7 @@ cpu_fetch_syscall_args(struct thread *td)
 	}
 
 	if (__predict_false(sa->code >= p->p_sysent->sv_size))
-		sa->callp = &nosys_sysent;
+		sa->callp = &p->p_sysent->sv_table[0];
 	else
 		sa->callp = &p->p_sysent->sv_table[sa->code];
 
@@ -151,10 +152,7 @@ print_with_symbol(const char *name, uint64_t value)
 		sym = db_search_symbol(value, DB_STGY_ANY, &offset);
 		if (sym != C_DB_SYM_NULL) {
 			db_symbol_values(sym, &sym_name, &sym_value);
-			if (offset != 0)
-				printf(" (%s + 0x%lx)", sym_name, offset);
-			else
-				printf(" (%s)", sym_name);
+			printf(" (%s + 0x%lx)", sym_name, offset);
 		}
 	}
 #endif
@@ -184,13 +182,17 @@ dump_regs(struct trapframe *frame)
 
 	print_with_symbol("ra", frame->tf_ra);
 	print_with_symbol("sp", frame->tf_sp);
-	print_with_symbol("gp", frame->tf_gp);
 	print_with_symbol("tp", frame->tf_tp);
-	print_with_symbol("sepc", frame->tf_sepc);
-	printf("sstatus: 0x%016lx\n", frame->tf_sstatus);
-	printf("stval  : 0x%016lx\n", frame->tf_stval);
+	print_with_symbol("fp", frame->tf_fp);
+	printf("era: 0x%016lx\n", frame->tf_era);
+	printf("crmd: 0x%016lx\n", frame->tf_crmd);
+	printf("prmd: 0x%016lx\n", frame->tf_prmd);
+	printf("ecfg: 0x%016lx\n", frame->tf_ecfg);
+	printf("estat: 0x%016lx\n", frame->tf_estat);
 }
 
+// FIXME
+#if 0
 static void
 ecall_handler(void)
 {
@@ -201,12 +203,13 @@ ecall_handler(void)
 	syscallenter(td);
 	syscallret(td);
 }
+#endif
 
 static void
 page_fault_handler(struct trapframe *frame, int usermode)
 {
 	struct vm_map *map;
-	uint64_t stval;
+	uint64_t evaddr;
 	struct thread *td;
 	struct pcb *pcb;
 	vm_prot_t ftype;
@@ -227,7 +230,7 @@ page_fault_handler(struct trapframe *frame, int usermode)
 	td = curthread;
 	p = td->td_proc;
 	pcb = td->td_pcb;
-	stval = frame->tf_stval;
+	evaddr = frame->tf_badvaddr;
 
 	if (td->td_critnest != 0 || td->td_intr_nesting_level != 0 ||
 	    WITNESS_CHECK(WARN_SLEEPOK | WARN_GIANTOK, NULL,
@@ -235,9 +238,9 @@ page_fault_handler(struct trapframe *frame, int usermode)
 		goto fatal;
 
 	if (usermode) {
-		if (!VIRT_IS_VALID(stval)) {
-			call_trapsignal(td, SIGSEGV, SEGV_MAPERR, (void *)stval,
-			    frame->tf_scause & SCAUSE_CODE);
+		if (!VIRT_IS_VALID(evaddr)) {
+			call_trapsignal(td, SIGSEGV, SEGV_MAPERR, (void *)evaddr,
+			    EXC_CODE(frame->tf_estat));
 			goto done;
 		}
 		map = &p->p_vmspace->vm_map;
@@ -248,7 +251,7 @@ page_fault_handler(struct trapframe *frame, int usermode)
 		 */
 		intr_enable();
 
-		if (stval >= VM_MIN_KERNEL_ADDRESS) {
+		if (evaddr >= VM_MIN_KERNEL_ADDRESS) {
 			map = kernel_map;
 		} else {
 			if (pcb->pcb_onfault == 0)
@@ -257,11 +260,11 @@ page_fault_handler(struct trapframe *frame, int usermode)
 		}
 	}
 
-	va = trunc_page(stval);
+	va = trunc_page(evaddr);
 
-	if (frame->tf_scause == SCAUSE_STORE_PAGE_FAULT) {
+	if (EXC_CODE(frame->tf_estat) == EXCCODE_TLBS) {
 		ftype = VM_PROT_WRITE;
-	} else if (frame->tf_scause == SCAUSE_INST_PAGE_FAULT) {
+	} else if (EXC_CODE(frame->tf_estat) == EXCCODE_TLBNX) {
 		ftype = VM_PROT_EXECUTE;
 	} else {
 		ftype = VM_PROT_READ;
@@ -273,12 +276,12 @@ page_fault_handler(struct trapframe *frame, int usermode)
 	error = vm_fault_trap(map, va, ftype, VM_FAULT_NORMAL, &sig, &ucode);
 	if (error != KERN_SUCCESS) {
 		if (usermode) {
-			call_trapsignal(td, sig, ucode, (void *)stval,
-			    frame->tf_scause & SCAUSE_CODE);
+			call_trapsignal(td, sig, ucode, (void *)evaddr,
+			    EXC_CODE(frame->tf_estat));
 		} else {
 			if (pcb->pcb_onfault != 0) {
 				frame->tf_a[0] = error;
-				frame->tf_sepc = pcb->pcb_onfault;
+				frame->tf_era = pcb->pcb_onfault;
 				return;
 			}
 			goto fatal;
@@ -295,13 +298,13 @@ fatal:
 #ifdef KDB
 	if (debugger_on_trap) {
 		kdb_why = KDB_WHY_TRAP;
-		handled = kdb_trap(frame->tf_scause & SCAUSE_CODE, 0, frame);
+		handled = kdb_trap(EXC_CODE(frame->tf_estat), 0, frame);
 		kdb_why = KDB_WHY_UNSET;
 		if (handled)
 			return;
 	}
 #endif
-	panic("Fatal page fault at %#lx: %#lx", frame->tf_sepc, stval);
+	panic("Fatal page fault at %#lx: %#016lx", frame->tf_era, evaddr);
 }
 
 void
@@ -310,16 +313,10 @@ do_trap_supervisor(struct trapframe *frame)
 	uint64_t exception;
 
 	/* Ensure we came from supervisor mode, interrupts disabled */
-	KASSERT((csr_read(sstatus) & (SSTATUS_SPP | SSTATUS_SIE)) ==
-	    SSTATUS_SPP, ("Came from S mode with interrupts enabled"));
-
-	KASSERT((csr_read(sstatus) & (SSTATUS_SUM)) == 0,
-	    ("Came from S mode with SUM enabled"));
-
-	exception = frame->tf_scause & SCAUSE_CODE;
-	if ((frame->tf_scause & SCAUSE_INTR) != 0) {
+	exception = EXC_CODE(frame->tf_estat);
+	if (EXC_CODE(frame->tf_estat) == EXCCODE_RSV) {
 		/* Interrupt */
-		intr_irq_handler(frame);
+		loongarch_cpu_intr(frame);
 		return;
 	}
 
@@ -328,30 +325,28 @@ do_trap_supervisor(struct trapframe *frame)
 		return;
 #endif
 
-	CTR4(KTR_TRAP, "%s: exception=%lu, sepc=%#lx, stval=%#lx", __func__,
-	    exception, frame->tf_sepc, frame->tf_stval);
+	CTR4(KTR_TRAP, "%s: exception=%lu, era=%lx, badvaddr=%lx", __func__,
+	    exception, frame->tf_era, frame->tf_badvaddr);
 
 	switch (exception) {
-	case SCAUSE_LOAD_ACCESS_FAULT:
-	case SCAUSE_STORE_ACCESS_FAULT:
-	case SCAUSE_INST_ACCESS_FAULT:
+	case EXCCODE_ADE:
 		dump_regs(frame);
-		panic("Memory access exception at %#lx: %#lx",
-		    frame->tf_sepc, frame->tf_stval);
+		panic("Memory access exception at 0x%016lx\n", frame->tf_era);
 		break;
-	case SCAUSE_LOAD_MISALIGNED:
-	case SCAUSE_STORE_MISALIGNED:
-	case SCAUSE_INST_MISALIGNED:
+	case EXCCODE_ALE:
 		dump_regs(frame);
-		panic("Misaligned address exception at %#lx: %#lx",
-		    frame->tf_sepc, frame->tf_stval);
+		panic("Misaligned address exception at %#016lx: %#016lx\n",
+		    frame->tf_era, frame->tf_badvaddr);
 		break;
-	case SCAUSE_STORE_PAGE_FAULT:
-	case SCAUSE_LOAD_PAGE_FAULT:
-	case SCAUSE_INST_PAGE_FAULT:
+	case EXCCODE_TLBL:
+	case EXCCODE_TLBS:
+	case EXCCODE_TLBI:
+	case EXCCODE_TLBM:
+	case EXCCODE_TLBNR:
+	case EXCCODE_TLBNX:
 		page_fault_handler(frame, 0);
 		break;
-	case SCAUSE_BREAKPOINT:
+	case EXCCODE_BP:
 #ifdef KDTRACE_HOOKS
 		if (dtrace_invop_jump_addr != NULL &&
 		    dtrace_invop_jump_addr(frame) == 0)
@@ -361,19 +356,17 @@ do_trap_supervisor(struct trapframe *frame)
 		kdb_trap(exception, 0, frame);
 #else
 		dump_regs(frame);
-		panic("No debugger in kernel.");
+		panic("No debugger in kernel.\n");
 #endif
 		break;
-	case SCAUSE_ILLEGAL_INSTRUCTION:
+	case EXCCODE_INE:
 		dump_regs(frame);
-		panic("Illegal instruction 0x%0*lx at %#lx",
-		    (frame->tf_stval & 0x3) != 0x3 ? 4 : 8,
-		    frame->tf_stval, frame->tf_sepc);
+		panic("Illegal instruction at 0x%016lx\n", frame->tf_era);
 		break;
 	default:
 		dump_regs(frame);
-		panic("Unknown kernel exception %#lx trap value %#lx",
-		    exception, frame->tf_stval);
+		panic("Unknown kernel exception %lx trap value %lx\n",
+		    exception, frame->tf_badvaddr);
 	}
 }
 
@@ -391,71 +384,68 @@ do_trap_user(struct trapframe *frame)
 	    ("%s: td_frame %p != frame %p", __func__, td->td_frame, frame));
 
 	/* Ensure we came from usermode, interrupts disabled */
-	KASSERT((csr_read(sstatus) & (SSTATUS_SPP | SSTATUS_SIE)) == 0,
-	    ("Came from U mode with interrupts enabled"));
-
-	KASSERT((csr_read(sstatus) & (SSTATUS_SUM)) == 0,
-	    ("Came from U mode with SUM enabled"));
-
-	exception = frame->tf_scause & SCAUSE_CODE;
-	if ((frame->tf_scause & SCAUSE_INTR) != 0) {
+	exception = EXC_CODE(frame->tf_estat);
+	if (EXC_CODE(frame->tf_estat) == EXCCODE_RSV) {
 		/* Interrupt */
-		intr_irq_handler(frame);
+		loongarch_cpu_intr(frame);
 		return;
 	}
 	intr_enable();
 
-	CTR4(KTR_TRAP, "%s: exception=%lu, sepc=%#lx, stval=%#lx", __func__,
-	    exception, frame->tf_sepc, frame->tf_stval);
+	CTR4(KTR_TRAP, "%s: exception=%lu, pc=%lx, badvaddr=%lx", __func__,
+	    exception, frame->tf_era, frame->tf_badvaddr);
 
 	switch (exception) {
-	case SCAUSE_LOAD_ACCESS_FAULT:
-	case SCAUSE_STORE_ACCESS_FAULT:
-	case SCAUSE_INST_ACCESS_FAULT:
-		call_trapsignal(td, SIGBUS, BUS_ADRERR, (void *)frame->tf_sepc,
+	case EXCCODE_ADE:
+		call_trapsignal(td, SIGBUS, BUS_ADRERR, (void *)frame->tf_era,
 		    exception);
 		userret(td, frame);
 		break;
-	case SCAUSE_LOAD_MISALIGNED:
-	case SCAUSE_STORE_MISALIGNED:
-	case SCAUSE_INST_MISALIGNED:
-		call_trapsignal(td, SIGBUS, BUS_ADRALN, (void *)frame->tf_sepc,
+	case EXCCODE_ALE:
+		call_trapsignal(td, SIGBUS, BUS_ADRALN, (void *)frame->tf_era,
 		    exception);
 		userret(td, frame);
 		break;
-	case SCAUSE_STORE_PAGE_FAULT:
-	case SCAUSE_LOAD_PAGE_FAULT:
-	case SCAUSE_INST_PAGE_FAULT:
+	case EXCCODE_TLBL:
+	case EXCCODE_TLBS:
+	case EXCCODE_TLBI:
+	case EXCCODE_TLBM:
+	case EXCCODE_TLBNR:
+	case EXCCODE_TLBNX:
 		page_fault_handler(frame, 1);
 		break;
-	case SCAUSE_ECALL_USER:
-		frame->tf_sepc += 4;	/* Next instruction */
-		ecall_handler();
+	case EXCCODE_SYS:
+		frame->tf_era += 4;	/* Next instruction */
+		// FIXME
+		//ecall_handler();
 		break;
-	case SCAUSE_ILLEGAL_INSTRUCTION:
+	case EXCCODE_INE:
 		if ((pcb->pcb_fpflags & PCB_FP_STARTED) == 0) {
+			// FIXME
 			/*
 			 * May be a FPE trap. Enable FPE usage
 			 * for this thread and try again.
 			 */
+			/*
 			fpe_state_clear();
 			frame->tf_sstatus &= ~SSTATUS_FS_MASK;
 			frame->tf_sstatus |= SSTATUS_FS_CLEAN;
 			pcb->pcb_fpflags |= PCB_FP_STARTED;
+			*/
 			break;
 		}
-		call_trapsignal(td, SIGILL, ILL_ILLTRP, (void *)frame->tf_sepc,
+		call_trapsignal(td, SIGILL, ILL_ILLTRP, (void *)frame->tf_era,
 		    exception);
 		userret(td, frame);
 		break;
-	case SCAUSE_BREAKPOINT:
-		call_trapsignal(td, SIGTRAP, TRAP_BRKPT, (void *)frame->tf_sepc,
+	case EXCCODE_BP:
+		call_trapsignal(td, SIGTRAP, TRAP_BRKPT, (void *)frame->tf_era,
 		    exception);
 		userret(td, frame);
 		break;
 	default:
 		dump_regs(frame);
-		panic("Unknown userland exception %#lx, trap value %#lx",
-		    exception, frame->tf_stval);
+		panic("Unknown userland exception %lx, trap value %lx\n",
+		    exception, frame->tf_badvaddr);
 	}
 }

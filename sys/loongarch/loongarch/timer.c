@@ -44,7 +44,6 @@
 #include <sys/bus.h>
 #include <sys/kernel.h>
 #include <sys/module.h>
-#include <sys/rman.h>
 #include <sys/timeet.h>
 #include <sys/timetc.h>
 #include <sys/vdso.h>
@@ -53,98 +52,100 @@
 #include <machine/cpufunc.h>
 #include <machine/intr.h>
 #include <machine/md_var.h>
-#include <machine/sbi.h>
 
-#include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/openfirm.h>
 
-struct riscv_timer_softc {
-	struct resource		*irq_res;
+struct loongarch_timer_softc {
 	void			*ih;
 	uint32_t		clkfreq;
 	struct eventtimer	et;
 };
-static struct riscv_timer_softc *riscv_timer_sc = NULL;
+static struct loongarch_timer_softc *loongarch_timer_sc = NULL;
 
-static timecounter_get_t riscv_timer_tc_get_timecount;
-static timecounter_fill_vdso_timehands_t riscv_timer_tc_fill_vdso_timehands;
+static timecounter_get_t loongarch_timer_tc_get_timecount;
+static timecounter_fill_vdso_timehands_t loongarch_timer_tc_fill_vdso_timehands;
 
-static struct timecounter riscv_timer_timecount = {
-	.tc_name           = "RISC-V Timecounter",
-	.tc_get_timecount  = riscv_timer_tc_get_timecount,
+static struct timecounter loongarch_timer_timecount = {
+	.tc_name           = "LoongArch Timecounter",
+	.tc_get_timecount  = loongarch_timer_tc_get_timecount,
 	.tc_poll_pps       = NULL,
 	.tc_counter_mask   = ~0u,
 	.tc_frequency      = 0,
 	.tc_quality        = 1000,
-	.tc_fill_vdso_timehands = riscv_timer_tc_fill_vdso_timehands,
+	.tc_fill_vdso_timehands = loongarch_timer_tc_fill_vdso_timehands,
 };
 
 static inline uint64_t
 get_timecount(void)
 {
-
 	return (rdtime());
 }
 
-static inline void
-set_timecmp(uint64_t timecmp)
-{
-
-	if (has_sstc)
-		csr_write(stimecmp, timecmp);
-	else
-		sbi_set_timer(timecmp);
-}
-
 static u_int
-riscv_timer_tc_get_timecount(struct timecounter *tc __unused)
+loongarch_timer_tc_get_timecount(struct timecounter *tc __unused)
 {
-
 	return (get_timecount());
 }
 
 static uint32_t
-riscv_timer_tc_fill_vdso_timehands(struct vdso_timehands *vdso_th,
+loongarch_timer_tc_fill_vdso_timehands(struct vdso_timehands *vdso_th,
     struct timecounter *tc)
 {
-	vdso_th->th_algo = VDSO_TH_ALGO_RISCV_RDTIME;
+	vdso_th->th_algo = VDSO_TH_ALGO_LOONGARCH_RDTIME;
 	bzero(vdso_th->th_res, sizeof(vdso_th->th_res));
 	return (1);
 }
 
 static int
-riscv_timer_et_start(struct eventtimer *et, sbintime_t first, sbintime_t period)
+loongarch_timer_et_start(struct eventtimer *et, sbintime_t first, sbintime_t period)
 {
 	uint64_t counts;
+	uint64_t val;
+
+	if (first == 0 && period == 0)
+		return (EINVAL);
 
 	if (first != 0) {
 		counts = ((uint32_t)et->et_frequency * first) >> 32;
-		set_timecmp(get_timecount() + counts);
-
-		return (0);
+	} else {
+		counts = ((uint32_t)et->et_frequency * period) >> 32;
 	}
 
-	return (EINVAL);
-}
+	counts &= CSR_TCFG_VAL;
+	val = counts | CSR_TCFG_EN;
 
-static int
-riscv_timer_et_stop(struct eventtimer *et)
-{
+	if (period) {
+		val |= CSR_TCFG_PERIOD;
+	} else {
+		val &= ~CSR_TCFG_PERIOD;
+	}
 
-	/* Disable timer interrupts. */
-	csr_clear(sie, SIE_STIE);
+	csr_write64(val, LOONGARCH_CSR_TCFG);
 
 	return (0);
 }
 
 static int
-riscv_timer_intr(void *arg)
+loongarch_timer_et_stop(struct eventtimer *et)
 {
-	struct riscv_timer_softc *sc;
+	uint64_t val;
 
-	sc = (struct riscv_timer_softc *)arg;
+	val = csr_read64(LOONGARCH_CSR_TCFG);
+	/* Disable timer */
+	val &= ~CSR_TCFG_EN;
+	csr_write64(val, LOONGARCH_CSR_TCFG);
+	return (0);
+}
 
-	csr_clear(sip, SIP_STIP);
+static int
+loongarch_timer_intr(void *arg)
+{
+	struct loongarch_timer_softc *sc;
+
+	sc = (struct loongarch_timer_softc *)arg;
+
+	// clear timer interrupt
+	csr_write32(1, LOONGARCH_CSR_TINTCLR);
 
 	if (sc->et.et_active)
 		sc->et.et_event_cb(&sc->et, sc->et.et_arg);
@@ -153,100 +154,78 @@ riscv_timer_intr(void *arg)
 }
 
 static int
-riscv_timer_get_timebase(device_t dev, uint32_t *freq)
+loongarch_timer_get_timebase(device_t dev, uint32_t *freq)
 {
-	phandle_t node;
-	int len;
+	uint32_t res;
+	uint32_t base_freq;
+	uint32_t cfm, cfd;
 
-	node = OF_finddevice("/cpus");
-	if (node == -1) {
-		if (bootverbose)
-			device_printf(dev, "Can't find cpus node.\n");
+	res = read_cpucfg(LOONGARCH_CPUCFG2);
+	if (!(res & CPUCFG2_LLFTP))
 		return (ENXIO);
-	}
+	base_freq = read_cpucfg(LOONGARCH_CPUCFG4);
+	res = read_cpucfg(LOONGARCH_CPUCFG5);
+	cfm = res & 0xffff;
+	cfd = (res >> 16) & 0xffff;
 
-	len = OF_getproplen(node, "timebase-frequency");
-	if (len != 4) {
-		if (bootverbose)
-			device_printf(dev,
-			    "Can't find timebase-frequency property.\n");
+	if (!base_freq || !cfm || !cfd)
 		return (ENXIO);
-	}
 
-	OF_getencprop(node, "timebase-frequency", freq, len);
+	*freq = (base_freq * cfm / cfd);
 
 	return (0);
 }
 
 static int
-riscv_timer_probe(device_t dev)
+loongarch_timer_probe(device_t dev)
 {
 
-	device_set_desc(dev, "RISC-V Timer");
+	device_set_desc(dev, "LoongArch Timer");
 
 	return (BUS_PROBE_DEFAULT);
 }
 
 static int
-riscv_timer_attach(device_t dev)
+loongarch_timer_attach(device_t dev)
 {
-	struct riscv_timer_softc *sc;
-	int irq, rid, error;
-	phandle_t iparent;
-	pcell_t cell;
+	struct loongarch_timer_softc *sc;
+	int error;
 
 	sc = device_get_softc(dev);
-	if (riscv_timer_sc != NULL)
+	if (loongarch_timer_sc != NULL)
 		return (ENXIO);
 
 	if (device_get_unit(dev) != 0)
 		return (ENXIO);
 
-	if (riscv_timer_get_timebase(dev, &sc->clkfreq) != 0) {
+	if (loongarch_timer_get_timebase(dev, &sc->clkfreq) != 0) {
 		device_printf(dev, "No clock frequency specified\n");
 		return (ENXIO);
 	}
 
-	riscv_timer_sc = sc;
-
-	iparent = OF_xref_from_node(ofw_bus_get_node(intr_irq_root_dev));
-	cell = IRQ_TIMER_SUPERVISOR;
-	irq = ofw_bus_map_intr(dev, iparent, 1, &cell);
-	error = bus_set_resource(dev, SYS_RES_IRQ, 0, irq, 1);
-	if (error != 0) {
-		device_printf(dev, "Unable to register IRQ resource\n");
-		return (ENXIO);
-	}
-
-	rid = 0;
-	sc->irq_res = bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid,
-	    RF_ACTIVE);
-	if (sc->irq_res == NULL) {
-		device_printf(dev, "Unable to alloc IRQ resource\n");
-		return (ENXIO);
-	}
+	loongarch_timer_sc = sc;
 
 	/* Setup IRQs handler */
-	error = bus_setup_intr(dev, sc->irq_res, INTR_TYPE_CLK,
-	    riscv_timer_intr, NULL, sc, &sc->ih);
-	if (error != 0) {
-		device_printf(dev, "Unable to setup IRQ resource\n");
+	error = loongarch_setup_intr(device_get_nameunit(dev), loongarch_timer_intr,
+	    NULL, sc, IRQ_TI, INTR_TYPE_CLK, &sc->ih);
+	if (error) {
+		device_printf(dev, "Unable to alloc int resource.\n");
 		return (ENXIO);
 	}
 
-	riscv_timer_timecount.tc_frequency = sc->clkfreq;
-	riscv_timer_timecount.tc_priv = sc;
-	tc_init(&riscv_timer_timecount);
+	loongarch_timer_timecount.tc_frequency = sc->clkfreq;
+	loongarch_timer_timecount.tc_priv = sc;
+	tc_init(&loongarch_timer_timecount);
 
-	sc->et.et_name = "RISC-V Eventtimer";
-	sc->et.et_flags = ET_FLAGS_ONESHOT | ET_FLAGS_PERCPU;
+	sc->et.et_name = "LoongArch Eventtimer";
+	sc->et.et_flags = ET_FLAGS_ONESHOT | ET_FLAGS_PERIODIC;
 	sc->et.et_quality = 1000;
 
 	sc->et.et_frequency = sc->clkfreq;
 	sc->et.et_min_period = (0x00000002LLU << 32) / sc->et.et_frequency;
 	sc->et.et_max_period = (0xfffffffeLLU << 32) / sc->et.et_frequency;
-	sc->et.et_start = riscv_timer_et_start;
-	sc->et.et_stop = riscv_timer_et_stop;
+	sc->et.et_start = loongarch_timer_et_start;
+	sc->et.et_stop = loongarch_timer_et_stop;
 	sc->et.et_priv = sc;
 	et_register(&sc->et);
 
@@ -255,19 +234,19 @@ riscv_timer_attach(device_t dev)
 	return (0);
 }
 
-static device_method_t riscv_timer_methods[] = {
-	DEVMETHOD(device_probe,		riscv_timer_probe),
-	DEVMETHOD(device_attach,	riscv_timer_attach),
+static device_method_t loongarch_timer_methods[] = {
+	DEVMETHOD(device_probe,		loongarch_timer_probe),
+	DEVMETHOD(device_attach,	loongarch_timer_attach),
 	{ 0, 0 }
 };
 
-static driver_t riscv_timer_driver = {
+static driver_t loongarch_timer_driver = {
 	"timer",
-	riscv_timer_methods,
-	sizeof(struct riscv_timer_softc),
+	loongarch_timer_methods,
+	sizeof(struct loongarch_timer_softc),
 };
 
-EARLY_DRIVER_MODULE(timer, nexus, riscv_timer_driver, 0, 0,
+EARLY_DRIVER_MODULE(timer, nexus, loongarch_timer_driver, 0, 0,
     BUS_PASS_TIMER + BUS_PASS_ORDER_MIDDLE);
 
 void
@@ -280,7 +259,7 @@ DELAY(int usec)
 	 * Check the timers are setup, if not just
 	 * use a for loop for the meantime
 	 */
-	if (riscv_timer_sc == NULL) {
+	if (loongarch_timer_sc == NULL) {
 		for (; usec > 0; usec--)
 			for (counts = 200; counts > 0; counts--)
 				/*
@@ -293,7 +272,7 @@ DELAY(int usec)
 	TSENTER();
 
 	/* Get the number of times to count */
-	counts_per_usec = ((riscv_timer_timecount.tc_frequency / 1000000) + 1);
+	counts_per_usec = ((loongarch_timer_timecount.tc_frequency / 1000000) + 1);
 
 	/*
 	 * Clamp the timeout at a maximum value (about 32 seconds with

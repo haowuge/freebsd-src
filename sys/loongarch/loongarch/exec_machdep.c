@@ -61,7 +61,6 @@
 #include <machine/pcb.h>
 #include <machine/pte.h>
 #include <machine/loongarchreg.h>
-#include <machine/sbi.h>
 #include <machine/trap.h>
 
 #include <vm/vm.h>
@@ -72,9 +71,11 @@
 static void get_fpcontext(struct thread *td, mcontext_t *mcp);
 static void set_fpcontext(struct thread *td, mcontext_t *mcp);
 
+#if 0
 _Static_assert(sizeof(mcontext_t) == 864, "mcontext_t size incorrect");
 _Static_assert(sizeof(ucontext_t) == 936, "ucontext_t size incorrect");
 _Static_assert(sizeof(siginfo_t) == 80, "siginfo_t size incorrect");
+#endif
 
 int
 fill_regs(struct thread *td, struct reg *regs)
@@ -82,16 +83,16 @@ fill_regs(struct thread *td, struct reg *regs)
 	struct trapframe *frame;
 
 	frame = td->td_frame;
-	regs->sepc = frame->tf_sepc;
-	regs->sstatus = frame->tf_sstatus;
-	regs->ra = frame->tf_ra;
-	regs->sp = frame->tf_sp;
-	regs->gp = frame->tf_gp;
-	regs->tp = frame->tf_tp;
+	regs->orig_a0 = frame->tf_a0;
+	regs->era = frame->tf_era;
+	regs->badvaddr = frame->tf_badvaddr;
+	regs->crmd = frame->tf_crmd;
+	regs->prmd = frame->tf_prmd;
+	regs->euen = frame->tf_euen;
+	regs->ecfg = frame->tf_ecfg;
+	regs->estat = frame->tf_estat;
 
-	memcpy(regs->t, frame->tf_t, sizeof(regs->t));
-	memcpy(regs->s, frame->tf_s, sizeof(regs->s));
-	memcpy(regs->a, frame->tf_a, sizeof(regs->a));
+	memcpy(regs->regs, frame->tf_regs, sizeof(regs->regs));
 
 	return (0);
 }
@@ -102,15 +103,16 @@ set_regs(struct thread *td, struct reg *regs)
 	struct trapframe *frame;
 
 	frame = td->td_frame;
-	frame->tf_sepc = regs->sepc;
-	frame->tf_ra = regs->ra;
-	frame->tf_sp = regs->sp;
-	frame->tf_gp = regs->gp;
-	frame->tf_tp = regs->tp;
+	frame->tf_a0 = regs->orig_a0;
+	frame->tf_era = regs->era;
+	frame->tf_badvaddr = regs->badvaddr;
+	frame->tf_crmd = regs->crmd;
+	frame->tf_prmd = regs->prmd;
+	frame->tf_euen = regs->euen;
+	frame->tf_ecfg = regs->ecfg;
+	frame->tf_estat = regs->estat;
 
-	memcpy(frame->tf_t, regs->t, sizeof(frame->tf_t));
-	memcpy(frame->tf_s, regs->s, sizeof(frame->tf_s));
-	memcpy(frame->tf_a, regs->a, sizeof(frame->tf_a));
+	memcpy(frame->tf_regs, regs->regs, sizeof(frame->tf_regs));
 
 	return (0);
 }
@@ -130,8 +132,8 @@ fill_fpregs(struct thread *td, struct fpreg *regs)
 		if (td == curthread)
 			fpe_state_save(td);
 
-		memcpy(regs->fp_x, pcb->pcb_x, sizeof(regs->fp_x));
-		regs->fp_fcsr = pcb->pcb_fcsr;
+		memcpy(regs->fp_regs, pcb->pcb_fregs, sizeof(regs->fp_regs));
+		regs->fp_fcsr = pcb->uf.pcb_fcsr0;
 	} else
 		memset(regs, 0, sizeof(*regs));
 
@@ -141,17 +143,15 @@ fill_fpregs(struct thread *td, struct fpreg *regs)
 int
 set_fpregs(struct thread *td, struct fpreg *regs)
 {
-	struct trapframe *frame;
+	//struct trapframe *frame;
 	struct pcb *pcb;
 
-	frame = td->td_frame;
+	//frame = td->td_frame;
 	pcb = td->td_pcb;
 
-	memcpy(pcb->pcb_x, regs->fp_x, sizeof(regs->fp_x));
-	pcb->pcb_fcsr = regs->fp_fcsr;
+	memcpy(pcb->pcb_fregs, regs->fp_regs, sizeof(regs->fp_regs));
+	pcb->uf.pcb_fcsr0 = regs->fp_fcsr;
 	pcb->pcb_fpflags |= PCB_FP_STARTED;
-	frame->tf_sstatus &= ~SSTATUS_FS_MASK;
-	frame->tf_sstatus |= SSTATUS_FS_CLEAN;
 
 	return (0);
 }
@@ -181,15 +181,17 @@ exec_setregs(struct thread *td, struct image_params *imgp, uintptr_t stack)
 
 	memset(tf, 0, sizeof(struct trapframe));
 
-	tf->tf_a[0] = stack;
-	tf->tf_sp = STACKALIGN(stack);
-	tf->tf_ra = imgp->entry_addr;
-	tf->tf_sepc = imgp->entry_addr;
+	tf->tf_regs[3] = STACKALIGN(stack);
+	tf->tf_regs[1] = imgp->entry_addr;
+	tf->tf_era = imgp->entry_addr;
 
 	pcb->pcb_fpflags &= ~PCB_FP_STARTED;
 }
 
 /* Sanity check these are the same size, they will be memcpy'd to and from */
+/*
+
+// FIXME
 CTASSERT(sizeof(((struct trapframe *)0)->tf_a) ==
     sizeof((struct gpregs *)0)->gp_a);
 CTASSERT(sizeof(((struct trapframe *)0)->tf_s) ==
@@ -202,27 +204,31 @@ CTASSERT(sizeof(((struct trapframe *)0)->tf_s) ==
     sizeof((struct reg *)0)->s);
 CTASSERT(sizeof(((struct trapframe *)0)->tf_t) ==
     sizeof((struct reg *)0)->t);
+*/
 
 int
 get_mcontext(struct thread *td, mcontext_t *mcp, int clear_ret)
 {
 	struct trapframe *tf = td->td_frame;
 
-	memcpy(mcp->mc_gpregs.gp_t, tf->tf_t, sizeof(mcp->mc_gpregs.gp_t));
-	memcpy(mcp->mc_gpregs.gp_s, tf->tf_s, sizeof(mcp->mc_gpregs.gp_s));
-	memcpy(mcp->mc_gpregs.gp_a, tf->tf_a, sizeof(mcp->mc_gpregs.gp_a));
+	memcpy(mcp->mc_gpregs.gp_regs, tf->tf_regs, sizeof(mcp->mc_gpregs.gp_regs));
 
+	// FIXME
+#if 0
 	if (clear_ret & GET_MC_CLEAR_RET) {
 		mcp->mc_gpregs.gp_a[0] = 0;
 		mcp->mc_gpregs.gp_t[0] = 0; /* clear syscall error */
 	}
+#endif
 
-	mcp->mc_gpregs.gp_ra = tf->tf_ra;
-	mcp->mc_gpregs.gp_sp = tf->tf_sp;
-	mcp->mc_gpregs.gp_gp = tf->tf_gp;
-	mcp->mc_gpregs.gp_tp = tf->tf_tp;
-	mcp->mc_gpregs.gp_sepc = tf->tf_sepc;
-	mcp->mc_gpregs.gp_sstatus = tf->tf_sstatus;
+	mcp->mc_gpregs.gp_orig_a0 = tf->tf_a0;
+	mcp->mc_gpregs.gp_era = tf->tf_era;
+	mcp->mc_gpregs.gp_badvaddr = tf->tf_badvaddr;
+	mcp->mc_gpregs.gp_crmd = tf->tf_crmd;
+	mcp->mc_gpregs.gp_prmd = tf->tf_prmd;
+	mcp->mc_gpregs.gp_euen = tf->tf_euen;
+	mcp->mc_gpregs.gp_ecfg = tf->tf_ecfg;
+	mcp->mc_gpregs.gp_estat = tf->tf_estat;
 	get_fpcontext(td, mcp);
 
 	return (0);
@@ -243,20 +249,24 @@ set_mcontext(struct thread *td, mcontext_t *mcp)
 	 * Ignore writes to the FS field as set_fpcontext() will set
 	 * it explicitly.
 	 */
+// FIXME
+#if 0
 	if (((mcp->mc_gpregs.gp_sstatus ^ tf->tf_sstatus) &
 	    ~(SSTATUS_SD | SSTATUS_XS_MASK | SSTATUS_FS_MASK | SSTATUS_UPIE |
 	    SSTATUS_UIE)) != 0)
 		return (EINVAL);
+#endif
 
-	memcpy(tf->tf_t, mcp->mc_gpregs.gp_t, sizeof(tf->tf_t));
-	memcpy(tf->tf_s, mcp->mc_gpregs.gp_s, sizeof(tf->tf_s));
-	memcpy(tf->tf_a, mcp->mc_gpregs.gp_a, sizeof(tf->tf_a));
+	memcpy(tf->tf_regs, mcp->mc_gpregs.gp_regs, sizeof(tf->tf_regs));
 
-	tf->tf_ra = mcp->mc_gpregs.gp_ra;
-	tf->tf_sp = mcp->mc_gpregs.gp_sp;
-	tf->tf_gp = mcp->mc_gpregs.gp_gp;
-	tf->tf_sepc = mcp->mc_gpregs.gp_sepc;
-	tf->tf_sstatus = mcp->mc_gpregs.gp_sstatus;
+	tf->tf_a0 = mcp->mc_gpregs.gp_orig_a0;
+	tf->tf_era = mcp->mc_gpregs.gp_era;
+	tf->tf_badvaddr = mcp->mc_gpregs.gp_badvaddr;
+	tf->tf_crmd = mcp->mc_gpregs.gp_crmd;
+	tf->tf_prmd = mcp->mc_gpregs.gp_prmd;
+	tf->tf_euen = mcp->mc_gpregs.gp_euen;
+	tf->tf_ecfg = mcp->mc_gpregs.gp_ecfg;
+	tf->tf_estat = mcp->mc_gpregs.gp_estat;
 	set_fpcontext(td, mcp);
 
 	return (0);
@@ -282,9 +292,9 @@ get_fpcontext(struct thread *td, mcontext_t *mcp)
 
 		KASSERT((curpcb->pcb_fpflags & ~PCB_FP_USERMASK) == 0,
 		    ("Non-userspace FPE flags set in get_fpcontext"));
-		memcpy(mcp->mc_fpregs.fp_x, curpcb->pcb_x,
-		    sizeof(mcp->mc_fpregs.fp_x));
-		mcp->mc_fpregs.fp_fcsr = curpcb->pcb_fcsr;
+		memcpy(mcp->mc_fpregs.fp_regs, curpcb->pcb_fregs,
+		    sizeof(mcp->mc_fpregs.fp_regs));
+		mcp->mc_fpregs.fp_fcsr = curpcb->uf.pcb_fcsr0;
 		mcp->mc_fpregs.fp_flags = curpcb->pcb_fpflags;
 		mcp->mc_flags |= _MC_FP_VALID;
 	}
@@ -297,19 +307,22 @@ set_fpcontext(struct thread *td, mcontext_t *mcp)
 {
 	struct pcb *curpcb;
 
+#if 0
 	td->td_frame->tf_sstatus &= ~SSTATUS_FS_MASK;
 	td->td_frame->tf_sstatus |= SSTATUS_FS_OFF;
+#endif
 
 	critical_enter();
 
 	if ((mcp->mc_flags & _MC_FP_VALID) != 0) {
 		curpcb = curthread->td_pcb;
 		/* FPE usage is enabled, override registers. */
-		memcpy(curpcb->pcb_x, mcp->mc_fpregs.fp_x,
-		    sizeof(mcp->mc_fpregs.fp_x));
-		curpcb->pcb_fcsr = mcp->mc_fpregs.fp_fcsr;
+		memcpy(curpcb->pcb_fregs, mcp->mc_fpregs.fp_regs,
+		    sizeof(mcp->mc_fpregs.fp_regs));
+		curpcb->uf.pcb_fcsr0 = mcp->mc_fpregs.fp_fcsr;
 		curpcb->pcb_fpflags = mcp->mc_fpregs.fp_flags & PCB_FP_USERMASK;
-		td->td_frame->tf_sstatus |= SSTATUS_FS_CLEAN;
+		// FIXME
+		//td->td_frame->tf_sstatus |= SSTATUS_FS_CLEAN;
 	}
 
 	critical_exit();
@@ -355,7 +368,7 @@ sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	mtx_assert(&psp->ps_mtx, MA_OWNED);
 
 	tf = td->td_frame;
-	onstack = sigonstack(tf->tf_sp);
+	onstack = sigonstack(tf->tf_regs[3]);
 
 	CTR4(KTR_SIG, "sendsig: td=%p (%s) catcher=%p sig=%d", td, p->p_comm,
 	    catcher, sig);
@@ -366,7 +379,7 @@ sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 		fp = (struct sigframe *)((uintptr_t)td->td_sigstk.ss_sp +
 		    td->td_sigstk.ss_size);
 	} else {
-		fp = (struct sigframe *)td->td_frame->tf_sp;
+		fp = (struct sigframe *)td->td_frame->tf_regs[3];
 	}
 
 	/* Make room, keeping the stack aligned */
@@ -392,22 +405,23 @@ sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 		sigexit(td, SIGILL);
 	}
 
-	tf->tf_a[0] = sig;
-	tf->tf_a[1] = (register_t)&fp->sf_si;
-	tf->tf_a[2] = (register_t)&fp->sf_uc;
+	tf->tf_regs[4] = sig;
+	tf->tf_regs[5] = (register_t)&fp->sf_si;
+	tf->tf_regs[6] = (register_t)&fp->sf_uc;
 
-	tf->tf_sepc = (register_t)catcher;
-	tf->tf_sp = (register_t)fp;
+	// FIXME
+	tf->tf_regs[1] = (register_t)catcher;
+	tf->tf_regs[3] = (register_t)fp;
 
 	sysent = p->p_sysent;
 	if (PROC_HAS_SHP(p))
-		tf->tf_ra = (register_t)PROC_SIGCODE(p);
+		tf->tf_era = (register_t)PROC_SIGCODE(p);
 	else
-		tf->tf_ra = (register_t)(PROC_PS_STRINGS(p) -
+		tf->tf_era = (register_t)(PROC_PS_STRINGS(p) -
 		    *(sysent->sv_szsigcode));
 
-	CTR3(KTR_SIG, "sendsig: return td=%p pc=%#x sp=%#x", td, tf->tf_sepc,
-	    tf->tf_sp);
+	CTR3(KTR_SIG, "sendsig: return td=%p pc=%#x sp=%#x", td, tf->tf_regs[1],
+	    tf->tf_regs[3]);
 
 	PROC_LOCK(p);
 	mtx_lock(&psp->ps_mtx);

@@ -120,20 +120,10 @@ elf64_register_sysvec(void *arg)
 	struct sysentvec *sv;
 
 	sv = arg;
-	switch (pmap_mode) {
-	case PMAP_MODE_SV48:
-		sv->sv_maxuser = VM_MAX_USER_ADDRESS_SV48;
-		sv->sv_usrstack = USRSTACK_SV48;
-		sv->sv_psstrings = PS_STRINGS_SV48;
-		sv->sv_shared_page_base = SHAREDPAGE_SV48;
-		break;
-	case PMAP_MODE_SV39:
-		sv->sv_maxuser = VM_MAX_USER_ADDRESS_SV39;
-		sv->sv_usrstack = USRSTACK_SV39;
-		sv->sv_psstrings = PS_STRINGS_SV39;
-		sv->sv_shared_page_base = SHAREDPAGE_SV39;
-		break;
-	}
+	sv->sv_maxuser = VM_MAX_USER_ADDRESS;
+	sv->sv_usrstack = USRSTACK;
+	sv->sv_psstrings = PS_STRINGS;
+	sv->sv_shared_page_base = SHAREDPAGE;
 }
 SYSINIT(elf64_register_sysvec, SI_SUB_VM, SI_ORDER_ANY, elf64_register_sysvec,
     &elf64_freebsd_sysvec);

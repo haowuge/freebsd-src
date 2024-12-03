@@ -64,7 +64,6 @@
 #include <machine/asm.h>
 #include <machine/trap.h>
 #include <machine/vmparam.h>
-#include <machine/sbi.h>
 
 /* bus softc */
 struct rcons_softc {
@@ -107,8 +106,7 @@ CONSOLE_DRIVER(riscv);
 static void
 riscv_putc(int c)
 {
-
-	sbi_console_putchar(c);
+	//sbi_console_putchar(c);
 }
 
 #ifdef EARLY_PRINTF
@@ -202,9 +200,9 @@ riscv_cnungrab(struct consdev *cp)
 static int
 riscv_cngetc(struct consdev *cp)
 {
-	int ch;
+	int ch = 0x10;
 
-	ch = sbi_console_getchar();
+	//ch = sbi_console_getchar();
 	if (ch > 0 && ch < 0xff) {
 #if defined(KDB)
 		kdb_alt_break(ch, &alt_break_state);

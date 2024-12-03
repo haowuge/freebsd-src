@@ -72,9 +72,9 @@ stack_save_td(struct stack *st, struct thread *td)
 	if (TD_IS_RUNNING(td))
 		return (EOPNOTSUPP);
 
-	frame.sp = td->td_pcb->pcb_sp;
-	frame.fp = td->td_pcb->pcb_s[0];
-	frame.pc = td->td_pcb->pcb_ra;
+	frame.sp = td->td_pcb->pcb_regs[3];
+	frame.fp = td->td_pcb->pcb_regs[22];
+	frame.pc = td->td_pcb->pcb_regs[1];
 
 	stack_capture(td, st, &frame);
 	return (0);
@@ -86,7 +86,7 @@ stack_save(struct stack *st)
 	struct unwind_state frame;
 	uintptr_t sp;
 
-	__asm __volatile("mv %0, sp" : "=&r" (sp));
+	__asm __volatile("move %0, $sp" : "=&r" (sp));
 
 	frame.sp = sp;
 	frame.fp = (uintptr_t)__builtin_frame_address(0);

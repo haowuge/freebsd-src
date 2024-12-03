@@ -59,14 +59,13 @@
 #include <machine/pcb.h>
 #include <machine/pte.h>
 #include <machine/loongarchreg.h>
-#include <machine/sbi.h>
 #include <machine/trap.h>
 
 int
 ptrace_set_pc(struct thread *td, u_long addr)
 {
 
-	td->td_frame->tf_sepc = addr;
+	td->td_frame->tf_regs[1] = addr;
 	return (0);
 }
 

@@ -153,7 +153,7 @@ db_write_bytes(vm_offset_t addr, size_t size, char *data)
 			*dst++ = *data++;
 
 		/* Invalidate I-cache */
-		fence_i();
+		flush_icache();
 	}
 	(void)kdb_jmpbuf(prev_jb);
 

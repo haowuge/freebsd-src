@@ -43,11 +43,11 @@
  * Fault handler for the copy{in,out} functions below.
  */
 ENTRY(copyio_fault)
-	SET_FAULT_HANDLER(x0, a1) /* Clear the handler */
-	EXIT_USER_ACCESS(a1)
+	SET_FAULT_HANDLER($zero, $a1) /* Clear the handler */
+	EXIT_USER_ACCESS($a1)
 copyio_fault_nopcb:
-	li	a0, EFAULT
-	ret
+	li.d	$a0, EFAULT
+	jirl 	$zero, $ra, 0
 END(copyio_fault)
 
 /*
@@ -58,53 +58,58 @@ END(copyio_fault)
  * a2 - Size of copy
  */
 	.macro copycommon
-	la	a6, copyio_fault	/* Get the handler address */
-	SET_FAULT_HANDLER(a6, a7)	/* Set the handler */
-	ENTER_USER_ACCESS(a7)
+	li.d	$a6, copyio_fault	/* Get the handler address */
+	SET_FAULT_HANDLER($a6, $a7)	/* Set the handler */
+	ENTER_USER_ACCESS($a7)
 
-	li	t2, XLEN_BYTES
-	blt	a2, t2, 4f		/* Byte-copy if len < XLEN_BYTES */
+	li.d	$t2, XLEN_BYTES
+	blt	$a2, $t2, 4f		/* Byte-copy if len < XLEN_BYTES */
 
 	/*
 	 * Compare lower bits of src and dest.
 	 * If they are aligned with each other, we can do word copy.
 	 */
-	andi	t0, a0, (XLEN_BYTES-1)	/* Low bits of src */
-	andi	t1, a1, (XLEN_BYTES-1)	/* Low bits of dest */
-	bne	t0, t1, 4f		/* Misaligned. Go to byte copy */
-	beqz	t0, 2f			/* Already word-aligned, skip ahead */
+	li.d	$t2, (XLEN_BYTES-1)
+	and	$t0, $a0, $t2			/* Low bits of src */
+	and	$t1, $a1, $t2			/* Low bits of dest */
+	bne	$t0, $t1, 4f		/* Misaligned. Go to byte copy */
+	beqz	$t0, 2f			/* Already word-aligned, skip ahead */
 
 	/* Byte copy until the first word-aligned address */
-1:	lb	a4, 0(a0)		/* Load byte from src */
-	addi	a0, a0, 1
-	sb	a4, 0(a1)		/* Store byte in dest */
-	addi	a1, a1, 1
-	addi	a2, a2, -1		/* len-- */
-	andi	t0, a0, (XLEN_BYTES-1)
-	bnez	t0, 1b
-	j	3f
+1:	ld.b	$a4, $a0, 0		/* Load byte from src */
+	addi.d	$a0, $a0, 1
+	st.b	$a4, $a1, 0		/* Store byte in dest */
+	addi.d	$a1, $a1, 1
+	addi.d	$a2, $a2, -1		/* len-- */
+	li.d	$t1, (XLEN_BYTES-1)
+	and	$t0, $a0, $t1
+	bnez	$t0, $1b
+	li.d	$t3, 3f
+	jr	$t3
 
 	/* Copy words */
-2:	ld	a4, 0(a0)		/* Load word from src */
-	addi	a0, a0, XLEN_BYTES
-	sd	a4, 0(a1)		/* Store word in dest */
-	addi	a1, a1, XLEN_BYTES
-	addi	a2, a2, -XLEN_BYTES	/* len -= XLEN_BYTES */
-3:	bgeu	a2, t2, 2b		/* Again if len >= XLEN_BYTES */
+2:	ld.w	$a4, $a0, 0		/* Load word from src */
+	li.d	$t0, XLEN_BYTES
+	add.d	$a0, $a0, $t0
+	st.w	$a4, $a1, 0		/* Store word in dest */
+	add.d	$a1, $a1, $t0
+	li.d	$t0, -XLEN_BYTES
+	add.d	$a2, $a2, $t0		/* len -= XLEN_BYTES */
+3:	bgeu	$a2, $t2, 2b		/* Again if len >= XLEN_BYTES */
 
 	/* Check if we're finished */
-	beqz	a2, 5f
+	beqz	$a2, 5f
 
 	/* Copy any remaining bytes */
-4:	lb	a4, 0(a0)		/* Load byte from src */
-	addi	a0, a0, 1
-	sb	a4, 0(a1)		/* Store byte in dest */
-	addi	a1, a1, 1
-	addi	a2, a2, -1		/* len-- */
-	bnez	a2, 4b
+4:	ld.b	$a4, $a0, 0		/* Load byte from src */
+	addi.d	$a0, $a0, 1
+	st.b	$a4, $a1, 0		/* Store byte in dest */
+	addi.d	$a1, $a1, 1
+	addi.d	$a2, $a2, -1		/* len-- */
+	bnez	$a2, 4b
 
-5:	EXIT_USER_ACCESS(a7)
-	SET_FAULT_HANDLER(x0, a7)	/* Clear the handler */
+5:	EXIT_USER_ACCESS($a7)
+	SET_FAULT_HANDLER($zero, $a7)	/* Clear the handler */
 	.endm
 
 /*
@@ -113,16 +118,16 @@ END(copyio_fault)
  * int copyout(const void *kaddr, void *udaddr, size_t len)
  */
 ENTRY(copyout)
-	beqz	a2, copyout_end	/* If len == 0 then skip loop */
-	add	a3, a1, a2
-	li	a4, VM_MAXUSER_ADDRESS
-	bgeu	a3, a4, copyio_fault_nopcb
+	beqz	$a2, copyout_end	/* If len == 0 then skip loop */
+	add.d	$a3, $a1, $a2
+	li.d	$a4, VM_MAXUSER_ADDRESS
+	bgeu	$a3, $a4, copyio_fault_nopcb
 
 	copycommon
 
 copyout_end:
-	li	a0, 0		/* return 0 */
-	ret
+	li.d	$a0, 0		/* return 0 */
+	jirl	$zero, $ra, 0
 END(copyout)
 
 /*
@@ -131,16 +136,16 @@ END(copyout)
  * int copyin(const void *uaddr, void *kaddr, size_t len)
  */
 ENTRY(copyin)
-	beqz	a2, copyin_end	/* If len == 0 then skip loop */
-	add	a3, a0, a2
-	li	a4, VM_MAXUSER_ADDRESS
-	bgeu	a3, a4, copyio_fault_nopcb
+	beqz	$a2, copyin_end	/* If len == 0 then skip loop */
+	add.d	$a3, $a0, $a2
+	li.d	$a4, VM_MAXUSER_ADDRESS
+	bgeu	$a3, $a4, copyio_fault_nopcb
 
 	copycommon
 
 copyin_end:
-	li	a0, 0		/* return 0 */
-	ret
+	li.d	$a0, 0		/* return 0 */
+	jirl	$zero, $ra, 0
 END(copyin)
 
 /*
@@ -149,34 +154,34 @@ END(copyin)
  * int copyinstr(const void *udaddr, void *kaddr, size_t len, size_t *done)
  */
 ENTRY(copyinstr)
-	mv	a5, x0		/* count = 0 */
-	beqz	a2, 3f		/* If len == 0 then skip loop */
+	move	$a5, $zero	/* count = 0 */
+	beqz	$a2, 3f		/* If len == 0 then skip loop */
 
-	la	a6, copyio_fault /* Get the handler address */
-	SET_FAULT_HANDLER(a6, a7) /* Set the handler */
-	ENTER_USER_ACCESS(a7)
+	li.d	$a6, copyio_fault /* Get the handler address */
+	SET_FAULT_HANDLER($a6, $a7) /* Set the handler */
+	ENTER_USER_ACCESS($a7)
 
-	li	a7, VM_MAXUSER_ADDRESS
-1:	bgeu	a0, a7, copyio_fault
-	lb	a4, 0(a0)	/* Load from uaddr */
-	addi	a0, a0, 1
-	sb	a4, 0(a1)	/* Store in kaddr */
-	addi	a1, a1, 1
-	beqz	a4, 2f
-	addi	a2, a2, -1	/* len-- */
-	addi	a5, a5, 1	/* count++ */
-	bnez	a2, 1b
+	li.d	$a7, VM_MAXUSER_ADDRESS
+1:	bgeu	$a0, $a7, copyio_fault
+	ld.b	$a4, $a0, 0	/* Load from uaddr */
+	addi.d	$a0, $a0, 1
+	st.b	$a4, $a1, 0	/* Store in kaddr */
+	addi.d	$a1, $a1, 1
+	beqz	$a4, 2f
+	addi.d	$a2, $a2, -1	/* len-- */
+	addi.d	$a5, $a5, 1	/* count++ */
+	bnez	$a2, 1b
 
-2:	EXIT_USER_ACCESS(a7)
-	SET_FAULT_HANDLER(x0, a7) /* Clear the handler */
+2:	EXIT_USER_ACCESS($a7)
+	SET_FAULT_HANDLER($zero, $a7) /* Clear the handler */
 
-3:	beqz	a3, 4f		/* Check if done != NULL */
-	addi	a5, a5, 1	/* count++ */
-	sd	a5, 0(a3)	/* done = count */
+3:	beqz	$a3, 4f		/* Check if done != NULL */
+	addi.d	$a5, $a5, 1	/* count++ */
+	st.d	$a5, $a3, 0	/* done = count */
 
-4:	mv	a0, x0		/* return 0 */
-	beqz	a4, 5f
-	li	a0, ENAMETOOLONG
+4:	move	$a0, $zero	/* return 0 */
+	beqz	$a4, 5f
+	li.d	$a0, ENAMETOOLONG
 5:
-	ret
+	jirl	$zero, $ra, 0
 END(copyinstr)
