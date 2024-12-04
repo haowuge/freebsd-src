@@ -2,9 +2,10 @@ name: Cross-build Kernel
 
 on:
   push:
-    branches: [ main, 'la_releng/14.2' ]
+    branches: [ main, 'stable/14', 'stable/13', 'la_releng/14.2' ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,10 +18,10 @@ jobs:
       fail-fast: false
       matrix:
         target_arch: [ amd64, loongarch64 ]
-        os: [ ubuntu-22.04, macos-latest ]
+        os: [ ubuntu-24.04, macos-latest ]
         include:
           # TODO: both Ubuntu and macOS have bmake packages, we should try them instead of bootstrapping our own copy.
-          - os: ubuntu-22.04
+          - os: ubuntu-24.04
             compiler: clang-18
             cross-bindir: /usr/lib/llvm-18/bin
             pkgs: bmake libarchive-dev clang-18 lld-18
