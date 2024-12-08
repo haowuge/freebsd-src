@@ -24,7 +24,7 @@ jobs:
           - os: ubuntu-24.04
             compiler: clang-18
             cross-bindir: /usr/lib/llvm-18/bin
-            pkgs: bmake libarchive-dev clang-18 lld-18
+            pkgs: bmake libarchive-dev clang-18 lld-18 llvm-18-dev llvm-18
           - os: macos-latest
             compiler: clang-18
             cross-bindir: /opt/homebrew/opt/llvm@18/bin
